@@ -1701,6 +1701,15 @@ function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, on
   useEffect(() => { setForm(idx >= 0 ? records[idx] : blankForm()); }, [idx]); // eslint-disable-line
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  const applyCascade = (cascade, record) => {
+    cascade.forEach((item) => {
+      if (item.type === "pair") {
+        setField(item.targetKey, { code: record[item.codeField] || "", name: record[item.nameField] || "" });
+      } else {
+        setField(item.targetKey, record[item.field] || "");
+      }
+    });
+  };
 
   const handleSave = () => {
     const hasValue = Object.entries(form).some(([k, v]) => !autoKeys.includes(k) && v);
@@ -1765,7 +1774,10 @@ function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, on
         {config.fields.map((f) => (
           <div key={f.key} style={f.type === "textarea" ? { gridColumn: "1 / -1" } : undefined}>
             <ModernField label={f.label}>
-              <FieldInput field={f} value={form[f.key]} onChange={(v) => setField(f.key, v)} store={store} />
+              <FieldInput
+                field={f} value={form[f.key]} onChange={(v) => setField(f.key, v)} store={store}
+                onCascade={f.lookup && f.lookup.cascade ? (record) => applyCascade(f.lookup.cascade, record) : undefined}
+              />
             </ModernField>
           </div>
         ))}
@@ -2654,7 +2666,16 @@ const SETUP_FORMS = {
   "Writer Information": {
     kind: "record", title: "Writer Information", searchable: true, wide: true,
     fields: [
-      { key: "code", label: "Code", auto: true }, { key: "name", label: "Name" }, { key: "contributorType", label: "Contributor Type", type: "select", options: ["Writer", "Translator", "Editor", "Proofreader"] }, { key: "phone", label: "Phone" },
+      { key: "code", label: "Code", auto: true }, { key: "name", label: "Name" },
+      { key: "division", label: "Division", disabled: true },
+      {
+        key: "district", label: "District", type: "pair",
+        lookup: {
+          sourceKey: "District Information", codeKey: "code", nameKey: "name",
+          cascade: [{ targetKey: "division", field: "division" }],
+        },
+      },
+      { key: "contributorType", label: "Contributor Type", type: "select", options: ["Writer", "Translator", "Editor", "Proofreader"] }, { key: "phone", label: "Phone" },
       { key: "email", label: "Email", type: "email" },
       { key: "address", label: "Address", type: "textarea" },
       { key: "opBalance", label: "Op. Balance", type: "number" },
@@ -4973,7 +4994,9 @@ function ReportSearchForm({ config, store, onClose }) {
       return;
     }
     if (config.liveReport === "writerInformation" && b === "Preview") {
-      setResults(((store && store["Writer Information"]) || []).filter((r) => (r.name || "").trim() !== ""));
+      setResults(((store && store["Writer Information"]) || [])
+        .filter((r) => (r.name || "").trim() !== "")
+        .map((r, i) => ({ ...r, code: String(i + 1).padStart(2, "0") })));
       return;
     }
     // Party Balance Report: every saved party, with their District and
@@ -6399,7 +6422,7 @@ function Dashboard({ user, onLogout }) {
       {setupForm && setupForm !== "Party Information" && setupForm !== "Book Information" && SETUP_FORMS[setupForm] && (
         SETUP_FORMS[setupForm].kind === "grid"
           ? <GridSetupForm config={SETUP_FORMS[setupForm]} rows={getRecords(setupForm)} setRows={setRecordsFor(setupForm)} onClose={() => setSetupForm(null)} />
-          : <RecordSetupForm config={SETUP_FORMS[setupForm]} records={getRecords(setupForm)} setRecords={setRecordsFor(setupForm)} mirrorRecords={setupForm === "Specimen Party" || setupForm === "Other Person Telephones" ? setRecordsFor("Party Information") : undefined} store={store} onClose={() => setSetupForm(null)} />
+          : <RecordSetupForm config={SETUP_FORMS[setupForm]} records={getRecords(setupForm)} setRecords={setRecordsFor(setupForm)} mirrorRecords={setupForm === "Specimen Party" || setupForm === "Other Person Telephones" ? setRecordsFor("Party Information") : undefined} store={storeWithRefs} onClose={() => setSetupForm(null)} />
       )}
       {orderForm && ORDER_FORMS[orderForm] && (
         <OrderEntryForm
