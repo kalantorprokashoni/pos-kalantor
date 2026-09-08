@@ -5144,15 +5144,21 @@ function ReportSearchForm({ config, store, onClose }) {
         </div>
       )}
       {results !== null && config.liveReport === "writerInformation" && (
-        <div style={{ marginTop: 14, border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 10, maxHeight: 260, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead><tr style={{ background: COLORS.paperDark }}><th style={thStyle}>Code</th><th style={thStyle}>Name</th><th style={thStyle}>Division</th><th style={thStyle}>District Code</th><th style={thStyle}>District Name</th><th style={thStyle}>Contributor Type</th><th style={thStyle}>Phone</th><th style={thStyle}>Email</th></tr></thead>
-            <tbody>{results.map((r, i) => {
-              const district = r.district && typeof r.district === "object" ? r.district : { code: r.districtCode, name: r.districtName || r.district };
-              return <tr key={i}><td style={tdStyle}>{r.code || "—"}</td><td style={tdStyle}>{r.name || "—"}</td><td style={tdStyle}>{r.division || "—"}</td><td style={tdStyle}>{district.code || "—"}</td><td style={tdStyle}>{district.name || "—"}</td><td style={tdStyle}>{r.contributorType || "—"}</td><td style={tdStyle}>{r.phone || "—"}</td><td style={tdStyle}>{r.email || "—"}</td></tr>;
-            })}</tbody>
-          </table>
-        </div>
+        results.length === 0 ? (
+          <div style={{ marginTop: 14, padding: "14px 10px", border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 10, color: COLORS.charcoalSoft, textAlign: "center", fontSize: 12.5 }}>
+            তথ্য পাওয়া যায়নি
+          </div>
+        ) : (
+          <div style={{ marginTop: 14, border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 10, maxHeight: 260, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ background: COLORS.paperDark }}><th style={thStyle}>Code</th><th style={thStyle}>Name</th><th style={thStyle}>Division</th><th style={thStyle}>District Code</th><th style={thStyle}>District Name</th><th style={thStyle}>Contributor Type</th><th style={thStyle}>Phone</th><th style={thStyle}>Email</th></tr></thead>
+              <tbody>{results.map((r, i) => {
+                const district = r.district && typeof r.district === "object" ? r.district : { code: r.districtCode, name: r.districtName || r.district };
+                return <tr key={i}><td style={tdStyle}>{r.code || "—"}</td><td style={tdStyle}>{r.name || "—"}</td><td style={tdStyle}>{r.division || "—"}</td><td style={tdStyle}>{district.code || "—"}</td><td style={tdStyle}>{district.name || "—"}</td><td style={tdStyle}>{r.contributorType || "—"}</td><td style={tdStyle}>{r.phone || "—"}</td><td style={tdStyle}>{r.email || "—"}</td></tr>;
+              })}</tbody>
+            </table>
+          </div>
+        )
       )}
       {results !== null && config.liveReport !== "partyInformation" && config.liveReport !== "partyBalance" && config.liveReport !== "writerInformation" && (
         <div style={{ marginTop: 14 }}>
