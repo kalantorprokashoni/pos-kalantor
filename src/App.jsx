@@ -4529,7 +4529,15 @@ const REPORT_FORMS = {
   },
   "Writer Information Register": {
     title: "Writer Information Register", subtitle: "Writer Information", modalWidth: 980,
-    liveReport: "writerInformation", fields: [], buttons: ["Preview", "Clear", "Exit"],
+    liveReport: "writerInformation",
+    fields: [
+      { key: "contributorType", label: "Contributor Type", type: "select", options: ["Writer", "Translator", "Editor", "Proofreader"] },
+      {
+        key: "district", label: "District", type: "pair",
+        lookup: { sourceKey: "District Information", codeKey: "code", nameKey: "name" },
+      },
+    ],
+    buttons: ["Preview", "Clear", "Exit"],
   },
   "Book Sales Register": {
     title: "Stock",
@@ -4994,8 +5002,11 @@ function ReportSearchForm({ config, store, onClose }) {
       return;
     }
     if (config.liveReport === "writerInformation" && b === "Preview") {
+      const districtCode = (values.district && values.district.code) || "";
       setResults(((store && store["Writer Information"]) || [])
         .filter((r) => (r.name || "").trim() !== "")
+        .filter((r) => !districtCode || (r.district && r.district.code === districtCode) || r.districtCode === districtCode)
+        .filter((r) => !values.contributorType || r.contributorType === values.contributorType)
         .map((r, i) => ({ ...r, code: String(i + 1).padStart(2, "0") })));
       return;
     }
