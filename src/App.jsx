@@ -5005,7 +5005,14 @@ function ReportSearchForm({ config, store, onClose }) {
       const districtCode = (values.district && values.district.code) || "";
       setResults(((store && store["Writer Information"]) || [])
         .filter((r) => (r.name || "").trim() !== "")
-        .filter((r) => !districtCode || (r.district && r.district.code === districtCode) || r.districtCode === districtCode)
+        .filter((r) => {
+          if (!districtCode) return true;
+          const savedCode = r.district && typeof r.district === "object" ? r.district.code : r.districtCode;
+          // District master codes are zero-padded (01), while a typed code
+          // may be entered as 1. Keep legacy writers without location data
+          // visible until they are edited and assigned a District.
+          return !savedCode || String(savedCode).replace(/^0+/, "") === String(districtCode).replace(/^0+/, "");
+        })
         .filter((r) => !values.contributorType || r.contributorType === values.contributorType)
         .map((r, i) => ({ ...r, code: String(i + 1).padStart(2, "0") })));
       return;
