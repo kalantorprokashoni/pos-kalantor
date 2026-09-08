@@ -1179,20 +1179,24 @@ function ModalShell({ title, onClose, wide, width, maxHeight, children, noScroll
   );
 }
 
-function FooterBtn({ children, onClick, primary, danger }) {
+// forwardRef so a specific instance (Save, on Sales Memo Bookwise -- see
+// saveButtonRef in OrderEntryForm) can be focused programmatically, e.g.
+// after Enter on Paid Amount. Every other caller is unaffected -- ref is
+// optional and simply ignored if not passed.
+const FooterBtn = React.forwardRef(function FooterBtn({ children, onClick, onDoubleClick, primary, danger }, ref) {
   return (
     // type="button" -- without it, a <button> defaults to type="submit". These
     // buttons normally sit outside any <form>, but forcing the type removes
     // any doubt and guards against a button silently doing nothing (or
     // triggering an unrelated submit) if it ever ends up inside one.
-    <button type="button" onClick={onClick} style={{
+    <button ref={ref} type="button" onClick={onClick} onDoubleClick={onDoubleClick} style={{
       padding: "7px 13px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
       border: primary ? "none" : danger ? "1.5px solid #f0b8b0" : `1.5px solid ${COLORS.paperLine}`,
       background: primary ? `linear-gradient(135deg, ${COLORS.ink}, ${COLORS.inkDark})` : danger ? "transparent" : COLORS.paperDark,
       color: primary ? "#fff" : danger ? "#c0392b" : COLORS.charcoal,
     }}>{children}</button>
   );
-}
+});
 
 /* "List of Values" search popup -- mirrors the old Oracle Forms behaviour:
    put the cursor in a code field (or the Search box) and press Enter (or
@@ -1311,6 +1315,212 @@ function fmtNum(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return "";
   return String(Math.round(n * 100) / 100);
 }
+
+/* ---------- Print layouts (Cash Memo / Challan / Booking Slip) ----------
+   Sales Memo Bookwise's three print buttons each build a small HTML
+   document (styled with plain inline CSS, so it looks right regardless of
+   the app's own stylesheet) and hand it to a real print-preview window --
+   window.print() opens the browser's normal print dialog (which itself
+   offers "Save as PDF"), same as any other printable web page. */
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+const PRINT_DOC_STYLE = `
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, Helvetica, sans-serif; padding: 26px; color: #1f2c30; }
+  .doc-title { text-align: center; font-size: 19px; font-weight: 800; letter-spacing: 0.04em; margin: 0 0 2px; text-transform: uppercase; }
+  .doc-sub { text-align: center; font-size: 11.5px; color: #5b7178; margin-bottom: 16px; }
+  .hdr-row { display: flex; justify-content: space-between; gap: 20px; font-size: 12.5px; margin-bottom: 4px; flex-wrap: wrap; }
+  .hdr-row > div { flex: 1 1 auto; }
+  .hdr-row b { color: #164e63; }
+  table.doc-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12.5px; }
+  table.doc-table th, table.doc-table td { border: 1px solid #9fb8bd; padding: 5px 7px; }
+  table.doc-table th { background: #dcedf0; text-align: left; }
+  table.doc-table td.num, table.doc-table th.num { text-align: right; }
+  .totals { width: 280px; margin-left: auto; margin-top: 12px; border-collapse: collapse; font-size: 12.5px; }
+  .totals td { padding: 3px 6px; }
+  .totals td:last-child { text-align: right; font-weight: 700; }
+  .totals tr.grand td { border-top: 1.5px solid #164e63; font-size: 13.5px; padding-top: 6px; }
+  .sign-row { display: flex; justify-content: space-between; margin-top: 60px; }
+  .sign-row div { width: 160px; border-top: 1px solid #444; text-align: center; padding-top: 4px; font-size: 12px; }
+  .remarks { margin-top: 14px; font-size: 12px; }
+  @media print { body { padding: 8mm; } }
+`;
+function openPrintWindow(title, bodyHtml, style) {
+  const w = window.open("", "_blank", "width=850,height=680");
+  if (!w) return false;
+  w.document.open();
+  w.document.write(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
+    `<style>${style || PRINT_DOC_STYLE}</style></head><body>${bodyHtml}` +
+    `<script>window.onload = function () { window.focus(); window.print(); };</script>` +
+    `</body></html>`
+  );
+  w.document.close();
+  return true;
+}
+
+/* ---------- Bengali (বাংলা) Cash Memo -- Ekalantor's own wholesale-book
+   memo layout: a bordered header box (Sales Type / Address / Memo No /
+   Date / Prepared by), a bordered book table, then an unruled totals
+   column (Commission / Packing / Discount / Remaining / Deposit / Due /
+   Previous Due / Total Due) with Manager & Delivery signature lines and a
+   printed-at footer, matching the paper memo this replaces. Quantities,
+   rates and money always render in Bengali numerals; the Memo No keeps
+   its Latin "SL-" serial (as printed on the original paper memos) and
+   Prepared-by keeps the plain username. */
+const BN_DIGITS = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
+function toBnDigits(v) {
+  return String(v).replace(/[0-9]/g, (d) => BN_DIGITS[d]);
+}
+/* Whole numbers (quantities) -- Bengali digits, no decimal point. */
+function bnInt(n) {
+  const v = Math.round(parseFloat(n) || 0);
+  return toBnDigits(String(v));
+}
+/* Money / rates -- one decimal place, thousands-comma, Bengali digits;
+   sign kept as a plain "-" (a due can legitimately go negative, i.e. an
+   overpayment/advance, same as the paper memo shows). */
+function bnMoney(n) {
+  const v = Math.round((parseFloat(n) || 0) * 10) / 10;
+  const neg = v < 0;
+  const abs = Math.abs(v).toFixed(1);
+  const [intPart, decPart] = abs.split(".");
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return toBnDigits(`${neg ? "-" : ""}${withCommas}.${decPart}`);
+}
+/* header.date is stored dd/mm/yy (see formatShortDate) -- expand to a
+   4-digit year and render in Bengali digits, e.g. "07/09/26" -> "০৭/০৯/২০২৬". */
+function bnDate(shortDate) {
+  const parts = String(shortDate || "").split("/");
+  if (parts.length !== 3) return toBnDigits(shortDate || "");
+  let [d, m, y] = parts;
+  if (y.length === 2) y = (parseInt(y, 10) >= 70 ? "19" : "20") + y;
+  return toBnDigits(`${d}/${m}/${y}`);
+}
+const SALES_TYPE_BN = { Library: "লাইব্রেরী", Normal: "সাধারণ", Condition: "শর্তাধীন", Wholesale: "পাইকারি" };
+/* Palette lifted from the "receipt studio" mockup the client approved:
+   deep slate ink (#243a42), warm cream accent (#f4e9c8), soft slate-blue
+   page background (#e9eef2) behind a rounded white paper card, thin
+   #6d7b80-family borders instead of harsh black rules. Kept print-safe:
+   the page tint/shadow are for the on-screen print-preview only and are
+   flattened to plain white in @media print so no ink is wasted on paper. */
+const CASH_MEMO_BN_STYLE = `
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Kalpurush", "Noto Sans Bengali", "Nikosh", "Segoe UI", Arial, sans-serif;
+    background: #e9eef2; color: #1e292d; padding: 26px; font-size: 13px;
+  }
+  .bn-shell { max-width: 720px; margin: 0 auto; }
+  .bn-paper {
+    background: #fff; border-radius: 16px; padding: 26px 28px;
+    box-shadow: 0 12px 32px rgba(36, 58, 66, 0.12); border: 1px solid #e2e8ea;
+  }
+  .bn-headrow {
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 14px;
+    border-bottom: 1.5px solid #243a42; padding-bottom: 10px; margin-bottom: 14px;
+  }
+  .bn-headrow-left { display: flex; align-items: center; gap: 18px; font-weight: 700; }
+  .bn-headrow-left .bn-tag { color: #718087; font-weight: 700; margin-right: 6px; }
+  .bn-serial-chip {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 26px;
+    padding: 2px 8px; border: 1.3px solid #6d7b80; border-radius: 7px; font-weight: 700; font-size: 12.5px;
+  }
+  .bn-memo-tag { color: #718087; font-weight: 700; margin-right: 6px; }
+  .bn-memo-val { font-weight: 800; letter-spacing: 0.02em; }
+  .bn-infogrid {
+    display: grid; grid-template-columns: 1.25fr 1fr; border: 1.3px solid #cdd6d9;
+    border-radius: 10px; overflow: hidden; font-size: 12.5px; margin-bottom: 14px;
+  }
+  .bn-cell {
+    display: flex; border-bottom: 1px solid #e2e8ea;
+  }
+  .bn-infogrid > div:nth-child(odd) { border-right: 1px solid #e2e8ea; }
+  .bn-cell:last-child, .bn-infogrid > div:last-child .bn-cell { border-bottom: none; }
+  .bn-cell-label {
+    width: 88px; flex-shrink: 0; padding: 7px 10px; font-weight: 700; color: #45565c;
+    background: #f6f8f9; border-right: 1px solid #e2e8ea;
+  }
+  .bn-cell-value { flex: 1; padding: 7px 10px; }
+  table.bn-table { width: 100%; border-collapse: collapse; font-size: 12.5px; border-radius: 10px; overflow: hidden; border: 1.3px solid #cdd6d9; }
+  table.bn-table th {
+    background: #f4e9c8; color: #3a3220; text-align: center; font-weight: 700;
+    padding: 7px 8px; border-bottom: 1.3px solid #cdd6d9;
+  }
+  table.bn-table td { padding: 6px 8px; border-top: 1px solid #eef1f2; }
+  table.bn-table td.num { text-align: right; }
+  .bn-total-row td { border-top: 1.5px solid #243a42; padding: 7px 8px; font-weight: 800; background: #f6f8f9; }
+  .bn-below { display: flex; justify-content: space-between; margin-top: 16px; gap: 24px; }
+  .bn-notes { font-size: 12.5px; flex: 1; }
+  .bn-notes .note-line { margin-bottom: 8px; color: #45565c; font-weight: 600; }
+  .bn-notes .note-line span.fill { border-bottom: 1px solid #c3ccd0; display: inline-block; min-width: 150px; margin-left: 4px; }
+  .bn-sign { display: flex; gap: 40px; margin-top: 46px; }
+  .bn-sign div { width: 150px; border-top: 1.3px solid #6d7b80; text-align: center; padding-top: 5px; font-size: 12px; font-weight: 600; color: #45565c; }
+  .bn-summary { border-collapse: collapse; font-size: 12.5px; min-width: 230px; }
+  .bn-summary td { padding: 4px 4px; }
+  .bn-summary td:first-child { color: #45565c; }
+  .bn-summary td:nth-child(2) { color: #93a0a5; padding: 0 6px; }
+  .bn-summary td:last-child { text-align: right; min-width: 90px; font-variant-numeric: tabular-nums; }
+  .bn-summary tr.bn-strong td { font-weight: 800; color: #182226; }
+  .bn-summary tr.bn-rule td { border-top: 1.3px solid #243a42; padding-top: 7px; }
+  .bn-footer {
+    display: flex; justify-content: space-between; margin-top: 30px; font-size: 10.5px;
+    color: #93a0a5; border-top: 1px solid #e2e8ea; padding-top: 8px;
+  }
+  @media print {
+    body { background: #fff; padding: 8mm; }
+    .bn-paper { box-shadow: none; border: none; border-radius: 0; padding: 0; }
+  }
+
+  /* Compact print-preview layout used by both Cash Memo Print and Challan Due. */
+  @page { size: A4 portrait; margin: 0; }
+  body { background: #303030; padding: 8px; font-size: 11px; }
+  .bn-shell { width: 540px; min-height: 774px; max-width: none; margin: 150px auto 0; background: #fff; }
+  .bn-paper { min-height: 774px; padding: 86px 22px 42px; border: 0; border-radius: 0; box-shadow: 0 0 18px rgba(0,0,0,0.35); }
+  .bn-headrow { display: grid; grid-template-columns: 1fr 150px; align-items: stretch; border: 1px solid #696969; min-height: 27px; margin: 0; padding: 0; }
+  .bn-headrow-left { display: flex; align-items: center; justify-content: space-between; gap: 0; }
+  .bn-headrow-left > span:first-child { display: flex; align-items: center; flex: 1; }
+  .bn-headrow-left .bn-tag { width: 42px; padding: 4px 6px; margin: 0 7px 0 0; border-right: 1px solid #696969; color: #202020; }
+  .bn-serial-chip { width: 34px; min-width: 34px; height: 23px; margin: 1px 3px 1px 0; padding: 0; border: 1px solid #696969; border-radius: 0; font-size: 11px; }
+  .bn-headrow > div:last-child { display: flex; align-items: center; border-left: 1px solid #696969; }
+  .bn-memo-tag { width: 54px; padding: 4px 5px; margin: 0; border-right: 1px solid #696969; color: #202020; }
+  .bn-memo-val { padding-left: 9px; }
+  .bn-infogrid { display: grid; grid-template-columns: 1fr 150px; grid-template-rows: 27px 27px; border: 1px solid #696969; border-top: 0; border-radius: 0; margin-bottom: 7px; font-size: 10.5px; }
+  .bn-cell { display: flex; border-bottom: 1px solid #696969; }
+  .bn-cell:nth-child(1) { grid-row: 1 / 3; }
+  .bn-infogrid > div:nth-child(2) { grid-column: 2; grid-row: 1; border-left: 0; }
+  .bn-infogrid > div:nth-child(3) { grid-column: 1; grid-row: 2; border-right: 1px solid #696969; }
+  .bn-infogrid > div:nth-child(4) { grid-column: 2; grid-row: 2; border-left: 0; }
+  .bn-cell-label { width: 48px; padding: 5px 6px; color: #202020; background: #fff; border-right: 1px solid #696969; }
+  .bn-cell-value { padding: 5px 7px; }
+  table.bn-table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid #696969; border-radius: 0; overflow: visible; font-size: 10.5px; }
+  table.bn-table th { background: #fff; color: #202020; padding: 4px 3px; height: 21px; border: 1px solid #696969; }
+  table.bn-table th:nth-child(1) { width: 12%; }
+  table.bn-table th:nth-child(2) { width: 39%; }
+  table.bn-table th:nth-child(3) { width: 16%; }
+  table.bn-table th:nth-child(4) { width: 16%; }
+  table.bn-table th:nth-child(5) { width: 17%; }
+  table.bn-table td { height: 20px; padding: 3px 5px; border: 1px solid #696969; }
+  .bn-total-row td { padding: 4px 5px; background: #fff; border-top: 1px solid #696969; }
+  .bn-below { display: grid; grid-template-columns: 1fr 178px; min-height: 174px; margin-top: 0; gap: 0; }
+  .bn-notes { padding: 10px 7px; font-size: 10.5px; }
+  .bn-notes .note-line { margin-bottom: 8px; color: #202020; }
+  .bn-notes .note-line span.fill { min-width: 116px; border-bottom: 1px solid #999; }
+  .bn-sign { justify-content: space-around; gap: 30px; margin-top: 86px; }
+  .bn-sign div { width: 88px; border-top: 1px solid #999; padding-top: 4px; font-size: 9.5px; color: #202020; }
+  .bn-summary { width: 100%; min-width: 0; border-left: 1px solid #696969; font-size: 10.5px; }
+  .bn-summary td { padding: 3px 4px; }
+  .bn-summary td:first-child { color: #202020; text-align: right; }
+  .bn-summary td:nth-child(2) { color: #202020; padding: 0 6px; }
+  .bn-summary td:last-child { min-width: 55px; color: #202020; }
+  .bn-summary tr.bn-strong td { color: #202020; }
+  .bn-summary tr.bn-rule td { border-top: 1px solid #696969; padding-top: 5px; }
+  .bn-footer { position: absolute; left: 22px; right: 22px; bottom: 39px; margin: 0; padding: 0; border: 0; color: #202020; font-size: 9px; }
+  @media (max-width: 600px) { body { background: #fff; padding: 0; } .bn-shell, .bn-paper { width: 100%; min-height: 100vh; } .bn-paper { padding-left: 12px; padding-right: 12px; } .bn-footer { left: 12px; right: 12px; } }
+  @media print { body { background: #fff; padding: 0; } .bn-shell, .bn-paper { width: 100%; min-height: 297mm; } .bn-paper { padding: 22mm 15mm 15mm; box-shadow: none; } .bn-footer { left: 15mm; right: 15mm; bottom: 13mm; } }
+`;
 
 /* Record-navigation buttons (First/Previous/Next/Last) render as their own
    right-aligned row, separate from the Save/Cancel/Exit action row -- this
@@ -1883,6 +2093,19 @@ function BookEntryForm({ config, groups, setGroups, books, setBooks, onClose }) 
     });
   };
   const addRow = () => { justAddedRow.current = true; setRows((rs) => [...rs, blankRow()]); };
+  // Row-level Delete: this grid live-registers a book into the permanent
+  // `books` register on blur (see registerBook above) with no separate Save
+  // step, so a mistyped/test row can't just be reverted by clicking away or
+  // clicking Cancel -- it needs its own way to actually remove that saved
+  // record, not merely clear the on-screen cells.
+  const deleteRow = (ri) => {
+    const row = rows[ri];
+    if (row && row.bookCode) setBooks((bs) => bs.filter((b) => b.bookCode !== row.bookCode));
+    setRows((rs) => {
+      const next = rs.filter((_, i) => i !== ri);
+      return next.length ? next : freshRows();
+    });
+  };
 
   // Typing a Book Name and tabbing/clicking away registers that row into the
   // Book Information register right away -- it no longer waits on a Group
@@ -2058,6 +2281,7 @@ function BookEntryForm({ config, groups, setGroups, books, setBooks, onClose }) 
               {config.fields.map((f) => (
                 <th key={f.key} style={{ ...thStyle, width: f.w }}>{f.label}</th>
               ))}
+              <th style={{ ...thStyle, width: 34 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -2081,6 +2305,21 @@ function BookEntryForm({ config, groups, setGroups, books, setBooks, onClose }) 
                       )}
                   </td>
                 ))}
+                <td style={{ ...tdStyle, textAlign: "center" }}>
+                  {/* Only a row that's actually been registered (has a real
+                      saved Book Code) or has any typed content is worth a
+                      delete control -- an already-blank template row has
+                      nothing to remove. */}
+                  {(row.bookCode || hasContent(row)) && (
+                    <button
+                      type="button" onClick={() => deleteRow(ri)}
+                      title="Delete this book"
+                      style={{ background: "none", border: "none", color: "#c0392b", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -2459,7 +2698,7 @@ const SETUP_FORMS = {
 function PartyInformationForm({ records, setRecords, divisions, districts, countries, onClose }) {
   const blankForm = () => ({
     divisionCode: "", divisionName: "", districtCode: "", districtName: "",
-    partyCode: nextSerial(records, "partyCode"), partyName: "", partyType: "",
+    partyCode: nextSerial(records, "partyCode"), partyName: "", partyType: "Library",
     address: "", phone: "", email: "", web: "", opBalance: "",
     date: formatShortDate(new Date()),
   });
@@ -2730,7 +2969,9 @@ function lookupRecordName(store, lookup, code) {
   const c = code.toString().trim().toLowerCase();
   const found = list.find((r) => {
     const rc = (r[lookup.codeKey] || "").toString().trim().toLowerCase();
-    return rc === c || rc === c.padStart(2, "0");
+    // A record whose name was left/cleared blank (e.g. a leftover test row)
+    // should never match as if it were a real saved record.
+    return (rc === c || rc === c.padStart(2, "0")) && String(r[lookup.nameKey] || "").trim() !== "";
   });
   return found ? (found[lookup.nameKey] || "") : null;
 }
@@ -2744,7 +2985,9 @@ function lookupBySerial(store, sourceKey, nameKey, code) {
   const list = (store && store[sourceKey]) || [];
   const c = code.toString().trim().padStart(2, "0");
   const idx = list.findIndex((_, i) => String(i + 1).padStart(2, "0") === c);
-  return idx === -1 ? null : (list[idx][nameKey] || "");
+  if (idx === -1) return null;
+  const name = list[idx][nameKey] || "";
+  return name.trim() !== "" ? name : null;
 }
 
 /* Same match as lookupRecordName, but hands back the whole saved record
@@ -2757,7 +3000,11 @@ function lookupFullRecord(store, lookup, code) {
   const c = code.toString().trim().toLowerCase();
   const found = list.find((r) => {
     const rc = (r[lookup.codeKey] || "").toString().trim().toLowerCase();
-    return rc === c || rc === c.padStart(2, "0");
+    if (rc !== c && rc !== c.padStart(2, "0")) return false;
+    // Some callers (e.g. runGridLookup's Book Code match) don't pass a
+    // nameKey -- only enforce the blank-name guard when one was given.
+    if (lookup.nameKey && String(r[lookup.nameKey] || "").trim() === "") return false;
+    return true;
   });
   return found || null;
 }
@@ -2884,9 +3131,15 @@ function OrderHeaderField({ field, value, onChange, store, onCascade, onLookupCo
       setLovOpen(true);
     };
     const lovItems = field.lookup
-      ? ((store && store[field.lookup.sourceKey]) || []).map((r) => ({
-          code: r[field.lookup.codeKey] || "", name: r[field.lookup.nameKey] || "", _rec: r,
-        }))
+      ? ((store && store[field.lookup.sourceKey]) || [])
+          // Drop incomplete/blank rows (e.g. a grid master's perpetual empty
+          // last row, or a book row whose Name got cleared but the record
+          // itself was never actually deleted) -- these should never be
+          // pickable as if they were a real saved record.
+          .filter((r) => String(r[field.lookup.nameKey] || "").trim() !== "")
+          .map((r) => ({
+            code: r[field.lookup.codeKey] || "", name: r[field.lookup.nameKey] || "", _rec: r,
+          }))
       : [];
     const pickFromLov = (it) => {
       onChange({ ...v, code: it.code, name: it.name });
@@ -2909,7 +3162,12 @@ function OrderHeaderField({ field, value, onChange, store, onCascade, onLookupCo
             onKeyDown={field.lookup ? handleCodeKeyDown : undefined}
             title={field.lookup ? `Enter the ${field.lookup.sourceKey} code, or press Enter/F9 to search by name` : undefined}
           />
-          <input style={{ ...inputStyle, flex: 1 }} placeholder="Name" value={v.name} onChange={(e) => onChange({ ...v, name: e.target.value })} />
+          <input
+            style={{ ...inputStyle, flex: 1 }} placeholder="Name" value={v.name}
+            readOnly={!!field.lookup}
+            title={field.lookup ? "Auto-filled from the Code -- not manually editable" : undefined}
+            onChange={(e) => { if (!field.lookup) onChange({ ...v, name: e.target.value }); }}
+          />
           {field.lookup && (
             <button
               type="button" onClick={() => setLovOpen(true)} title={`Search ${field.lookup.sourceKey} (F9)`}
@@ -3208,11 +3466,14 @@ const ORDER_FORMS = {
   /* ---- Sales, Return menu (rebuilt from Book Sales / Return / Specimen /
      Collection / Reject / Bonus screens) ---- */
   "Sales Memo Bookwise": {
-    title: "Book Sales Entry Form  (Bookwise Search)",
+    title: "Book Sales Entry Form",
     modalWidth: 1120,
     gridBoxHeight: 150,
     compactHeader: true,
     searchable: true,
+    // Memo-number search only -- the dropdown/result list should show the
+    // Memo No alone, not "000001 -- Party Name" like other forms.
+    hideSearchPartyName: true,
     /* Saved sales memos already flow into the Book Information register /
        Sales reports, so this entry screen doesn't need to re-list them --
        First/Previous/Next/Last still page through saved memos to fix a
@@ -3295,14 +3556,35 @@ const ORDER_FORMS = {
           // search popup (see the grid cell below) -- the actual auto-fill
           // on a match still runs entirely off `fields`.
           gridLookup: { sourceKey: "Book Information", codeKey: "bookCode", nameKey: "bookName", fields: { bookName: "bookName", code: "groupCode", categoryName: "groupName", stock: "openBalance", netRate: "rate", com: "com", saleRate: "rate" } },
+          // Book Code stays locked until Qty (the first cell on the row) has
+          // something in it -- typing a quantity first, then the book, mirrors
+          // the old ledger's "how many, then which book" order and stops a
+          // book code being entered against an empty/blank line.
+          disabledUnless: "qty",
         },
-        { key: "bookName", label: "Book Name", w: 250 },
-        { key: "code", label: "Code", w: 45 },
-        { key: "categoryName", label: "Category Name", w: 150 },
+        { key: "bookName", label: "Book Name", w: 250, disabled: true },
+        { key: "code", label: "Code", w: 45, disabled: true },
+        { key: "categoryName", label: "Category Name", w: 150, disabled: true },
         { key: "stock", label: "Stock", disabled: true, w: 50 },
+        // Editable -- Book Code still auto-fills it from the Book Information
+        // register, but the person can now correct/override the rate by hand
+        // afterwards (e.g. a one-off discount) instead of it being locked.
         { key: "netRate", label: "Net.Rate", type: "number", w: 60 },
         { key: "com", label: "Com", type: "number", tint: "pink", w: 50 },
-        { key: "saleRate", label: "Sale Rate", type: "number", w: 60 },
+        {
+          key: "saleRate", label: "Sale Rate", type: "number", w: 60,
+          // Recomputes the moment Com (or Net Rate) changes, instead of
+          // needing a separate manual edit to keep Sale Rate in sync --
+          // Com is treated as a trade discount off Net Rate, same as the
+          // old ledger. Total (below) is already qty * saleRate, so this
+          // is what makes Total / Sub Total / Net Bill all cascade
+          // automatically off a Com change too.
+          compute: (r) => {
+            const net = parseFloat(r.netRate) || 0;
+            const com = parseFloat(r.com) || 0;
+            return net - (net * com) / 100;
+          },
+        },
         { key: "total", label: "Total", type: "number", compute: (r) => (parseFloat(r.qty) || 0) * (parseFloat(r.saleRate) || 0), w: 65 },
       ],
     },
@@ -3327,12 +3609,14 @@ const ORDER_FORMS = {
         fields: [
           // Same auto-numbering as Memo No above (000001, 000002, ...).
           { key: "paymentNo", label: "Payment No", type: "text", disabled: true, autoSerial: { pad: 6 } },
-          { key: "payMode", label: "Pay Mode", type: "select", options: PAY_MODE_OPTIONS },
+          { key: "payMode", label: "Pay Mode", type: "select", options: PAY_MODE_OPTIONS, default: "Cash" },
           {
             key: "bankName", label: "Bank name", type: "pair",
             lookup: { sourceKey: "Bank Account Information", codeKey: "code", nameKey: "bankName" },
           },
-          { key: "paidAmount", label: "Paid Amount", type: "number" },
+          // Enter here jumps straight to Save (see focusSaveOnEnter handling
+          // in renderFooterField) instead of tabbing on to Ext.com/Less/Packing.
+          { key: "paidAmount", label: "Paid Amount", type: "number", focusSaveOnEnter: true },
         ],
       },
       {
@@ -4902,7 +5186,7 @@ function OrderRecordsList({ records, columns, activeIdx, onEdit, onDelete }) {
    header fields on top, an editable line grid (Save auto-appends a fresh
    blank row), a saved-entries list to add new / edit a mistake, plus
    First/Next/Previous/Last to page through saved entries. */
-function OrderEntryForm({ config, records, setRecords, store, onClose }) {
+function OrderEntryForm({ config, records, setRecords, store, preparedBy, onClose }) {
   // Group header fields into rows on each `newRow` marker so every row
   // renders as its own single-line flex container (see body below) --
   // this is what makes fields like Party Code / Address / Sales Type /
@@ -4932,7 +5216,9 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
         if (f.type === "pctAmount") return [[f.pctKey, ""]];
         if (f.compute) return [];
         if (f.autoSerial) return [[f.key, nextSerial(records.map((r) => (r && r.footer) || {}), f.key, f.autoSerial.pad || 6)]];
-        return [[f.key, f.type === "pair" ? { code: "", name: "" } : ""]];
+        // f.default lets a footer field (e.g. Pay Mode) start pre-selected --
+        // same convention as blankFieldValue's f.default for header fields.
+        return [[f.key, f.type === "pair" ? { code: "", name: "" } : (f.default !== undefined ? f.default : "")]];
       })
     );
 
@@ -4942,6 +5228,9 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
   const [idx, setIdx] = useState(-1); // -1 = new / unsaved entry
   const [msg, setMsg] = useState("");
   const [search, setSearch] = useState("");
+  // Dropdown of saved entries under the Search box (see body below) --
+  // open while the box has focus, closed on blur/Escape/picking one.
+  const [showSearchList, setShowSearchList] = useState(false);
   const gridBoxRef = useRef(null);
   const justAddedRow = useRef(false);
   // The grid's very first input (row 0, column 0 -- Qty on Sales Memo
@@ -4959,6 +5248,11 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
   // value can hand focus on to the next field the same way a header "pair"
   // lookup field's popup does (see focusNextFocusable).
   const [gridLov, setGridLov] = useState(null);
+  // The Save button's own DOM node -- so a field flagged `focusSaveOnEnter`
+  // (Paid Amount, on Sales Memo Bookwise) can send focus straight to it on
+  // Enter, instead of tabbing on to whichever field happens to sit next in
+  // the DOM (Ext.com% / Less / Packing).
+  const saveButtonRef = useRef(null);
 
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(""), 1400); };
 
@@ -5045,7 +5339,7 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
   const runGridLookup = (gridLookup, ri, code) => {
     if (gridLookup.fields) {
       const rec = gridLookup.codeKey
-        ? lookupFullRecord(store, { sourceKey: gridLookup.sourceKey, codeKey: gridLookup.codeKey }, code)
+        ? lookupFullRecord(store, { sourceKey: gridLookup.sourceKey, codeKey: gridLookup.codeKey, nameKey: gridLookup.nameKey }, code)
         : lookupRowBySerial(store, gridLookup.sourceKey, code);
       if (rec) {
         const patch = {};
@@ -5100,6 +5394,28 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
     );
     if (found >= 0) loadEntry(found); else flash("Not found");
   };
+  // Search-box dropdown: one label per saved entry, built from whichever
+  // header field is this form's own primary running number (Memo No,
+  // Return No, ... -- the autoSerial'd field, same one shown/incremented
+  // on a blank entry) plus the Party Code's name if this form has one, so
+  // e.g. Sales Memo Bookwise shows "000006 -- Karim Book Depot" instead of
+  // a bare number. Falls back to "Entry N" for a form with neither.
+  const primarySearchField = config.headerFields.find((f) => f.autoSerial) || (config.footerPanels || []).flatMap((p) => p.fields || []).find((f) => f.autoSerial);
+  // hideSearchPartyName (Sales Memo Bookwise) keeps this list to the bare
+  // Memo No -- no "-- Party Name" suffix -- instead of every form's default.
+  const partySearchField = config.hideSearchPartyName ? null : config.headerFields.find((f) => f.key === "party");
+  const searchCandidates = records.map((r, i) => {
+    const primary = primarySearchField ? (r.header && r.header[primarySearchField.key]) || "" : "";
+    const partyName = partySearchField ? ((r.header && r.header[partySearchField.key] && r.header[partySearchField.key].name) || "") : "";
+    const label = [primary, partyName].filter(Boolean).join(" — ") || `Entry ${i + 1}`;
+    return { i, label };
+  });
+  const filteredSearchCandidates = (() => {
+    const q = search.trim().toLowerCase();
+    const list = q ? searchCandidates.filter((c) => c.label.toLowerCase().includes(q)) : searchCandidates;
+    return list.slice(0, 30);
+  })();
+  const pickSearchCandidate = (i) => { loadEntry(i); setSearch(""); setShowSearchList(false); };
 
   const handleSave = () => {
     const cleanRows = config.grid
@@ -5118,24 +5434,191 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
     setHeader(blankHeader()); setRows(blankRows()); setFooter(blankFooter()); setIdx(-1);
     flash("Deleted");
   };
-  const goFirst = () => records.length && loadEntry(0);
-  const goLast = () => records.length && loadEntry(records.length - 1);
-  const goNext = () => records.length && loadEntry(Math.min((idx < 0 ? records.length - 1 : idx) + 1, records.length - 1));
-  const goPrevious = () => records.length && loadEntry(Math.max((idx < 0 ? 0 : idx) - 1, 0));
-  // Removes whichever row the cursor is currently sitting in (tracked via
-  // activeRowRef, updated on focus of any cell -- see the grid below),
-  // instead of always dropping the last row regardless of where the
-  // cursor actually is.
+  // First/Previous/Next/Last page through the saved records -- flash a
+  // message when there's nothing to page to (empty list, already at an
+  // end) instead of silently doing nothing, which otherwise looks
+  // indistinguishable from the button being broken.
+  const goFirst = () => {
+    if (!records.length) { flash("No saved records yet"); return; }
+    loadEntry(0);
+  };
+  const goLast = () => {
+    if (!records.length) { flash("No saved records yet"); return; }
+    // Always jumps to whatever is currently the LAST saved record --
+    // records.length - 1 is re-read fresh every click, so a memo saved a
+    // moment ago is picked up immediately, not just whatever was last
+    // when the form first opened.
+    loadEntry(records.length - 1);
+  };
+  const goNext = () => {
+    if (!records.length) { flash("No saved records yet"); return; }
+    if (idx >= 0 && idx >= records.length - 1) { flash("Already at the last record"); return; }
+    loadEntry(Math.min((idx < 0 ? records.length - 1 : idx) + 1, records.length - 1));
+  };
+  const goPrevious = () => {
+    if (!records.length) { flash("No saved records yet"); return; }
+    if (idx === 0) { flash("Already at the first record"); return; }
+    loadEntry(Math.max((idx < 0 ? 0 : idx) - 1, 0));
+  };
+  // Clears ONLY the row the cursor is currently sitting in (tracked via
+  // activeRowRef, updated on focus of any cell -- see the grid below) --
+  // resets that row's Book Code / Book Name / Qty / etc back to blank, but
+  // keeps the row itself in place. Previously this spliced the row out of
+  // the array entirely, which shifted every row below it up by one --
+  // "Delete Line" should only ever blank out the line under the cursor,
+  // never delete the row/line from the table.
   const handleDeleteLine = () => {
+    if (!config.grid) return;
     setRows((rs) => {
-      if (rs.length <= 1) return rs;
       const ri = Math.min(Math.max(activeRowRef.current, 0), rs.length - 1);
-      const next = rs.filter((_, i) => i !== ri);
-      return next.length ? next : blankRows();
+      const blankRow = Object.fromEntries(config.grid.columns.map((c) => [c.key, ""]));
+      return rs.map((r, i) => (i === ri ? blankRow : r));
     });
   };
-  const handleDeleteMemo = () => setRows(blankRows());
+  // Wipes the ENTIRE memo -- header, every line, footer/payment fields --
+  // and, if this was an already-saved memo (idx >= 0), removes it from the
+  // saved records too, same as the "Delete" button. Previously this only
+  // cleared the grid rows, leaving the header/footer (and the saved record
+  // itself, if any) untouched.
+  const handleDeleteMemo = () => {
+    if (idx >= 0 && idx < records.length) {
+      setRecords((rs) => rs.filter((_, i) => i !== idx));
+      flash("Memo deleted");
+    } else {
+      flash("Memo cleared");
+    }
+    setHeader(blankHeader()); setRows(blankRows()); setFooter(blankFooter()); setIdx(-1);
+  };
   const handleSlip = () => flash("Slip sent to printer (prototype)");
+
+  // Reads every footerPanels field's current/computed value into a flat
+  // {key: value} map (Total Price, Sub Total, Net Bill, Dues, Remarks,
+  // Transport Name, ... whatever this config defines) -- the three print
+  // handlers below build their layouts off this instead of re-deriving
+  // each total by hand.
+  const getFooterComputedMap = () => {
+    const map = {};
+    (config.footerPanels || []).forEach((p) => (p.fields || []).forEach((f) => {
+      if (f.type === "pctAmount") { map[f.pctKey] = footer[f.pctKey] || ""; map[`${f.pctKey}Amt`] = f.amtCompute(footerCtx); return; }
+      if (f.compute) { map[f.key] = f.compute(footerCtx); return; }
+      map[f.key] = footer[f.key];
+    }));
+    return map;
+  };
+  // Computed columns turn blank template rows into numeric "0" values, so
+  // checking every column would incorrectly print a stack of empty rows.
+  // A printable book row must have an entered book, code, or quantity.
+  const savedRowsForPrint = () => displayRows.filter((r) => (
+    String(r.bookName || r.bookCode || r.qty || "").trim() !== ""
+  ));
+
+  /* Cash Memo Print -- the customer-facing bill: books sold with rate/total,
+     then the same Total / Ext.com / Sub Total / Less / Packing / Net Bill /
+     Dues cascade shown on-screen, plus Manager/Delivery signature lines. */
+  const handleCashMemoPrint = (documentTitle = "Cash Memo") => {
+    const fc = getFooterComputedMap();
+    const rows = savedRowsForPrint();
+    const totalQty = rows.reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
+    const rowsHtml = rows.map((r) => `
+      <tr>
+        <td class="num">${bnInt(r.qty)}</td>
+        <td>${escapeHtml(r.bookName)}</td>
+        <td class="num">${bnMoney(r.netRate)}</td>
+        <td class="num">${bnMoney(r.saleRate)}</td>
+        <td class="num">${bnMoney(r.total)}</td>
+      </tr>`).join("");
+    const salesTypeBn = SALES_TYPE_BN[header.salesType] || escapeHtml(header.salesType || "");
+    const memoNo = header.memoNo ? `SL-${header.memoNo}` : "";
+    const due = (parseFloat(fc.netBill) || 0) - (parseFloat(fc.paidAmount) || 0);
+    const transportName = (fc.transportName && fc.transportName.name) || "";
+    const now = new Date();
+
+    const body = `
+      <div class="bn-shell"><div class="bn-paper">
+      <div class="bn-headrow">
+        <div class="bn-headrow-left">
+          <span><span class="bn-tag">নাম</span>${salesTypeBn}</span>
+          <span class="bn-serial-chip">১</span>
+        </div>
+        <div><span class="bn-memo-tag">মেমো নং</span><span class="bn-memo-val">${escapeHtml(memoNo)}</span></div>
+      </div>
+      <div class="bn-infogrid">
+        <div class="bn-cell"><div class="bn-cell-label">ঠিকানা</div><div class="bn-cell-value">${escapeHtml(header.address)}</div></div>
+        <div class="bn-cell"><div class="bn-cell-label">তারিখ</div><div class="bn-cell-value">${bnDate(header.date)}</div></div>
+        <div></div>
+        <div class="bn-cell"><div class="bn-cell-label">Prepared by</div><div class="bn-cell-value">${escapeHtml(preparedBy || "admin")}</div></div>
+      </div>
+      <table class="bn-table">
+        <thead>
+          <tr><th>পরিমাণ</th><th>বইয়ের নাম</th><th>মুদ্রিত মূল্য</th><th>বিক্রয় মূল্য</th><th>মোট টাকা</th></tr>
+        </thead>
+        <tbody>${rowsHtml || `<tr><td colspan="5" style="text-align:center;color:#93a0a5;">কোনো বই যোগ করা হয়নি</td></tr>`}</tbody>
+        <tfoot>
+          <tr class="bn-total-row">
+            <td>${bnInt(totalQty)}</td>
+            <td colspan="3" style="text-align:right;">মোট :</td>
+            <td class="num">${bnMoney(fc.totalPrice)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="bn-below">
+        <div class="bn-notes">
+          <div class="note-line">ট্রান্সপোর্ট<span class="fill">${escapeHtml(transportName)}</span></div>
+          <div class="note-line">মন্তব্য<span class="fill">${escapeHtml(fc.remarks || "")}</span></div>
+          <div class="bn-sign"><div>ম্যানেজার</div><div>ডেলিভারি</div></div>
+        </div>
+        <table class="bn-summary">
+          <tbody>
+            <tr><td>কমিশন</td><td>:</td><td>${bnMoney(fc.extComAmt)}</td></tr>
+            <tr><td>প্যাকেট খরচ</td><td>:</td><td>${bnMoney(fc.packing)}</td></tr>
+            <tr><td>ছাড়</td><td>:</td><td>${bnMoney(fc.less)}</td></tr>
+            <tr class="bn-rule bn-strong"><td>অবশিষ্ট</td><td>:</td><td>${bnMoney(fc.netBill)}</td></tr>
+            <tr class="bn-strong"><td>জমা</td><td>:</td><td>${bnMoney(fc.paidAmount)}</td></tr>
+            <tr class="bn-strong"><td>বাকি</td><td>:</td><td>${bnMoney(due)}</td></tr>
+            <tr><td>পূর্বের বকেয়া</td><td>:</td><td>${bnMoney(header.previousDues)}</td></tr>
+            <tr class="bn-rule bn-strong"><td>মোট বকেয়া</td><td>:</td><td>${bnMoney(fc.dues)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="bn-footer">
+        <div>${escapeHtml(formatDhakaDate(now).replace(",", ""))} ${escapeHtml(formatDhakaTime(now))}</div>
+        <div>Page 1 of 1</div>
+      </div>
+      </div></div>
+    `;
+
+
+
+
+    if (!openPrintWindow(`${documentTitle} - ${memoNo}`, body, CASH_MEMO_BN_STYLE)) flash("Please allow pop-ups to print");
+  };
+
+  // Challan Due intentionally uses the exact same compact Bengali invoice
+  // layout as Cash Memo Print; only the document title changes.
+  const handleChallanDue = () => handleCashMemoPrint("Challan Due");
+
+  /* Booking Slip -- handed to the transport company: who/where it's going,
+     transport name, packet count and total book qty, plus any booking
+     remarks -- deliberately no prices, since a courier doesn't need them. */
+  const handleBookingSlip = () => {
+    const fc = getFooterComputedMap();
+    const partyName = (header.party && header.party.name) || "";
+    const districtName = (header.district && header.district.name) || "";
+    const transportName = (fc.transportName && fc.transportName.name) || "";
+    const totalQty = savedRowsForPrint().reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
+    const body = `
+      <div class="doc-title">Booking Slip</div>
+      <div class="doc-sub">Transport Booking -- ${escapeHtml(config.publisherName || "Namlipi Prokashoni")}</div>
+      <div class="hdr-row"><div><b>Memo No:</b> ${escapeHtml(header.memoNo)}</div><div><b>Date:</b> ${escapeHtml(header.date)}</div></div>
+      <div class="hdr-row"><div><b>Consignee (Party):</b> ${escapeHtml(partyName)}</div><div><b>District:</b> ${escapeHtml(districtName)}</div></div>
+      <div class="hdr-row"><div><b>Address:</b> ${escapeHtml(header.address)}</div></div>
+      <div class="hdr-row"><div><b>Transport:</b> ${escapeHtml(transportName)}</div><div><b>Packet Qty:</b> ${escapeHtml(fc.packetQty)}</div></div>
+      <div class="hdr-row"><div><b>Total Book Qty:</b> ${fmtNum(totalQty)}</div></div>
+      ${fc.bookingRemarks ? `<div class="remarks"><b>Booking Remarks:</b> ${escapeHtml(fc.bookingRemarks)}</div>` : ""}
+      <div class="sign-row"><div>Sender</div><div>Transport / Booking Officer</div></div>
+    `;
+    if (!openPrintWindow(`Booking Slip - ${header.memoNo || ""}`, body)) flash("Please allow pop-ups to print");
+  };
 
   const BUTTON_HANDLERS = {
     Save: { fn: handleSave, primary: true },
@@ -5150,6 +5633,9 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
     "Delete Line": { fn: handleDeleteLine, danger: true },
     "Line Delete": { fn: handleDeleteLine, danger: true },
     "Delete memo": { fn: handleDeleteMemo, danger: true },
+    "Cash Memo Print": { fn: handleCashMemoPrint },
+    "Challan Due": { fn: handleChallanDue },
+    "Booking Slip": { fn: handleBookingSlip },
     Slip: { fn: handleSlip },
     SLIP: { fn: handleSlip },
     Print: { fn: handleSlip, primary: true },
@@ -5175,7 +5661,19 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
     if (f.type === "pair") {
       return <OrderHeaderField field={f} value={footer[f.key]} onChange={(v) => setFooter((s) => ({ ...s, [f.key]: v }))} />;
     }
-    return <FieldInput field={f} value={footer[f.key]} onChange={(v) => setFooter((s) => ({ ...s, [f.key]: v }))} />;
+    return (
+      <FieldInput
+        field={f}
+        value={footer[f.key]}
+        onChange={(v) => setFooter((s) => ({ ...s, [f.key]: v }))}
+        onKeyDown={f.focusSaveOnEnter ? (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          e.stopPropagation(); // don't let handleEnterAsTab also run
+          if (saveButtonRef.current) saveButtonRef.current.focus();
+        } : undefined}
+      />
+    );
   };
 
   const body = (
@@ -5245,17 +5743,55 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
           ))}
         </div>
         {config.searchable && (
-          <div style={{ flex: "0 0 190px" }}>
+          <div style={{ flex: "0 0 190px", position: "relative" }}>
             <ModernField label={config.searchLabel || "Search"} compact={config.compactHeader}>
               <div style={{ display: "flex", gap: 6 }}>
                 <input
-                  value={search} onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && doSearch()}
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setShowSearchList(true); }}
+                  onFocus={() => setShowSearchList(true)}
+                  // A plain onBlur would close the list before a click on one
+                  // of its items ever registers -- the short delay lets that
+                  // click (see pickSearchCandidate below) land first.
+                  onBlur={() => setTimeout(() => setShowSearchList(false), 150)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") doSearch();
+                    if (e.key === "Escape") setShowSearchList(false);
+                  }}
                   style={inputStyle}
                 />
                 <FooterBtn onClick={doSearch}>{config.searchLabel || "Search"}</FooterBtn>
               </div>
             </ModernField>
+            {/* Dropdown of previously saved entries -- opens on focus/typing,
+                picking one loads it into the form the same way typing its
+                number and pressing Search does. */}
+            {showSearchList && searchCandidates.length > 0 && (
+              <div style={{
+                position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
+                marginTop: 2, maxHeight: 220, overflowY: "auto",
+                background: COLORS.cream, border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 8,
+                boxShadow: "0 12px 24px rgba(0,0,0,0.18)",
+              }}>
+                {filteredSearchCandidates.length === 0 ? (
+                  <div style={{ padding: "8px 10px", fontSize: 11.5, color: COLORS.charcoalSoft }}>No matches</div>
+                ) : (
+                  filteredSearchCandidates.map((c) => (
+                    <div
+                      key={c.i}
+                      // onMouseDown (not onClick) fires before the input's
+                      // onBlur, so the pick still runs before the dropdown
+                      // closes itself out from under the click.
+                      onMouseDown={() => pickSearchCandidate(c.i)}
+                      style={{
+                        padding: "7px 10px", fontSize: 12, cursor: "pointer",
+                        borderBottom: `1px dashed ${COLORS.paperLine}`,
+                      }}
+                    >{c.label}</div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -5301,6 +5837,14 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
                                 <input
                                   ref={isFirstCell ? gridFirstCellRef : undefined}
                                   value={row[c.key] || ""}
+                                  // e.g. Book Code's disabledUnless: "qty" -- locked
+                                  // until that same row's Qty cell has a value.
+                                  disabled={c.disabledUnless ? !String(row[c.disabledUnless] || "").trim() : false}
+                                  title={
+                                    c.disabledUnless && !String(row[c.disabledUnless] || "").trim()
+                                      ? `Enter ${c.disabledUnless.toUpperCase()} first`
+                                      : `Enter the ${c.gridLookup.sourceKey} code, or press Enter/F9 to search, to auto-fill the rest of this row`
+                                  }
                                   onChange={(e) => updateCell(ri, c.key, e.target.value)}
                                   onBlur={() => runGridLookup(c.gridLookup, ri, row[c.key])}
                                   onKeyDown={(e) => {
@@ -5323,15 +5867,20 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
                                       setGridLov({ ri, colKey: c.key, triggerEl: e.target });
                                     }
                                   }}
-                                  style={tintStyle(inputStyle, c.tint)}
-                                  title={`Enter the ${c.gridLookup.sourceKey} code, or press Enter/F9 to search, to auto-fill the rest of this row`}
+                                  style={c.disabledUnless && !String(row[c.disabledUnless] || "").trim() ? autoFieldStyle : tintStyle(inputStyle, c.tint)}
                                 />
                                 {gridLov && gridLov.ri === ri && gridLov.colKey === c.key && (
                                   <LovPopup
                                     title={`Find ${c.gridLookup.sourceKey}`}
-                                    items={((store && store[c.gridLookup.sourceKey]) || []).map((r) => ({
-                                      code: r[c.gridLookup.codeKey] || "", name: r[c.gridLookup.nameKey] || "", _rec: r,
-                                    }))}
+                                    items={((store && store[c.gridLookup.sourceKey]) || [])
+                                      // Same blank-name guard as the header pair
+                                      // field's popup -- an incomplete/leftover
+                                      // master row should never show up here as
+                                      // if it were a real saved book.
+                                      .filter((r) => String(r[c.gridLookup.nameKey] || "").trim() !== "")
+                                      .map((r) => ({
+                                        code: r[c.gridLookup.codeKey] || "", name: r[c.gridLookup.nameKey] || "", _rec: r,
+                                      }))}
                                     initialQuery={row[c.key] || ""}
                                     onPick={(it) => {
                                       const patch = { [c.key]: it.code };
@@ -5469,7 +6018,19 @@ function OrderEntryForm({ config, records, setRecords, store, onClose }) {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {config.buttons.filter((b) => !NAV_BUTTON_LABELS.includes(b)).map((b) => {
             const h = BUTTON_HANDLERS[b] || { fn: () => flash(`${b} (prototype)`) };
-            return <FooterBtn key={b} onClick={h.fn} primary={h.primary} danger={h.danger}>{b}</FooterBtn>;
+            return (
+              <FooterBtn
+                key={b}
+                ref={b === "Save" ? saveButtonRef : undefined}
+                onClick={h.fn}
+                // Explicit for clarity/reliability -- a focused <button> already
+                // saves on Enter/Space natively, and a single click already
+                // saves too, so double-click just calls the same handler again.
+                onDoubleClick={b === "Save" ? h.fn : undefined}
+                primary={h.primary}
+                danger={h.danger}
+              >{b}</FooterBtn>
+            );
           })}
         </div>
         {config.extraField && (
@@ -5821,6 +6382,7 @@ function Dashboard({ user, onLogout }) {
           records={getRecords(orderForm)}
           setRecords={setRecordsFor(orderForm)}
           store={storeWithRefs}
+          preparedBy={user}
           onClose={() => setOrderForm(null)}
         />
       )}
