@@ -86,7 +86,7 @@ const MENUS = [
     label: "Register",
     items: [
       "Small Sales Register", "Daily Collection Register",
-      "Book Information Register", "Party Information Register",
+      "Book Information Register", "Party Information Register", "Writer Information Register",
       "Book Received Register", "Book Sales Register",
       "Book Stock Reject Register", "Return Register", "Yearly Bonus Register",
       "Party Ledger Details", "Party Dues Ledger",
@@ -1672,13 +1672,14 @@ function FieldInput({ field, value, onChange, store, inputRef, onKeyDown, onBlur
 }
 
 /* Single-record navigable form (Code/Name/... + Save/Clear/Delete/Exit + First/Prev/Next/Last) */
-function RecordSetupForm({ config, records, setRecords, store, onClose }) {
+function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, onClose }) {
   const autoKeys = config.fields.filter((f) => f.auto).map((f) => f.key);
   const blankForm = () => Object.fromEntries(autoKeys.map((k) => [k, nextSerial(records, k)]));
   const [idx, setIdx] = useState(-1);
   const [form, setForm] = useState(blankForm);
   const [search, setSearch] = useState("");
   const [msg, setMsg] = useState("");
+  const [showLov, setShowLov] = useState(false);
 
   useEffect(() => { setForm(idx >= 0 ? records[idx] : blankForm()); }, [idx]); // eslint-disable-line
 
@@ -1689,9 +1690,11 @@ function RecordSetupForm({ config, records, setRecords, store, onClose }) {
     if (!hasValue) { setMsg("Nothing to save"); setTimeout(() => setMsg(""), 1400); return; }
     if (idx >= 0) {
       const next = records.slice(); next[idx] = form; setRecords(next);
+      if (mirrorRecords) mirrorRecords((rs) => rs.map((r) => r.partyCode === (form.partyCode || form.code) ? { ...r, ...form, partyCode: form.partyCode || form.code, partyName: form.partyName || form.name } : r));
       setMsg("Saved successfully");
     } else {
       const next = [...records, form]; setRecords(next);
+      if (mirrorRecords) mirrorRecords((rs) => [...rs, { ...form, partyCode: form.partyCode || form.code, partyName: form.partyName || form.name, partyType: form.partyType || "Special People", districtCode: form.district?.code || form.districtCode || "", districtName: form.district?.name || form.districtName || "" }]);
       /* Ready the form for the next entry right away, instead of parking on the
          just-saved record -- matches the old ledger system's "save & continue" flow. */
       setForm(blankForm()); setIdx(-1);
@@ -1707,13 +1710,10 @@ function RecordSetupForm({ config, records, setRecords, store, onClose }) {
   };
   const goFirst = () => records.length && setIdx(0);
   const goLast = () => records.length && setIdx(records.length - 1);
-  const goNext = () => idx < records.length - 1 && setIdx(idx + 1);
-  const goPrev = () => idx > 0 && setIdx(idx - 1);
+  const goNext = () => records.length && setIdx(idx < 0 || idx >= records.length - 1 ? 0 : idx + 1);
+  const goPrev = () => records.length && setIdx(idx <= 0 ? records.length - 1 : idx - 1);
   const doSearch = () => {
-    const q = search.trim().toLowerCase();
-    if (!q) return;
-    const found = records.findIndex((r) => Object.values(r).some((v) => String(v || "").toLowerCase().includes(q)));
-    if (found >= 0) setIdx(found); else setMsg("Not found");
+    setShowLov(true);
   };
   const listColumns = config.fields.filter((f) => f.type !== "textarea").slice(0, 3);
   const editFromList = (i) => setIdx(i);
@@ -1740,6 +1740,9 @@ function RecordSetupForm({ config, records, setRecords, store, onClose }) {
           <FooterBtn onClick={doSearch}>Search</FooterBtn>
         </div>
       )}
+      {showLov && <LovPopup title={`Find ${config.title}`} initialQuery={search}
+        items={records.map((r, i) => ({ code: r.code || r.partyCode || "", name: r.name || r.partyName || "", _idx: i }))}
+        onPick={(it) => { setIdx(it._idx); setShowLov(false); }} onClose={() => setShowLov(false)} />}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
         {config.fields.map((f) => (
           <div key={f.key} style={f.type === "textarea" ? { gridColumn: "1 / -1" } : undefined}>
@@ -1868,6 +1871,7 @@ function GridSetupForm({ config, rows, setRows, onClose }) {
       {msg && <div style={{ color: COLORS.inkDark, fontSize: 12.5, marginBottom: 10, fontWeight: 600, flex: "0 0 auto" }}>{msg}</div>}
       <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
         <FooterBtn onClick={handleSave} primary>Save</FooterBtn>
+        <FooterBtn onClick={() => setRows((rs) => [...rs, blankRow()])}>Add New</FooterBtn>
         <FooterBtn onClick={handleCancel}>Cancel</FooterBtn>
         <FooterBtn onClick={onClose}>Exit</FooterBtn>
       </div>
@@ -2383,7 +2387,7 @@ const ALL_DISTRICT_NAMES = [...Object.values(BD_DISTRICTS_BY_DIVISION).flat(), "
 
 /* Party types offered in the Party Type popup -- add more here any time a new
    kind of institution needs to be supported. */
-const PARTY_TYPES = ["Library", "School", "Madrasha", "Private Institution"];
+const PARTY_TYPES = ["Private Institution", "Madrasha", "School", "Library", "Special People"];
 
 /* Out Of Country: a permanent grouping (separate from the 64 districts) where individual
    country names can be added, for books/parties outside Bangladesh. */
@@ -2545,7 +2549,7 @@ const SETUP_FORMS = {
     ],
   },
   "Publication / Binder Information": {
-    kind: "record", title: "Publication & Binder Entry Form", searchable: true, wide: true,
+    kind: "record", title: "Binder Entry Form", searchable: true, wide: true,
     fields: [
       { key: "code", label: "Code", auto: true }, { key: "name", label: "Name" },
       { key: "phone", label: "Phone" }, { key: "email", label: "Email", type: "email" },
@@ -2565,7 +2569,7 @@ const SETUP_FORMS = {
         lookup: { sourceKey: "District Information", codeKey: "code", nameKey: "name" },
       },
       { key: "partyCode", label: "Party Code", auto: true }, { key: "partyName", label: "Party Name" },
-      { key: "school", label: "School Name" }, { key: "phone", label: "Phone" },
+      { key: "partyType", label: "Party Type", type: "select", options: PARTY_TYPES }, { key: "phone", label: "Phone" },
       { key: "address", label: "Address", type: "textarea" },
     ],
   },
@@ -2601,7 +2605,7 @@ const SETUP_FORMS = {
     ],
   },
   "Paper Type Information": {
-    kind: "grid", title: "Paper Type Entry", initialRows: 8,
+    kind: "grid", title: "Paper Type Entry", initialRows: 1,
     fields: [{ key: "papCode", label: "Pap Code", w: 110, auto: true }, { key: "paperTypeName", label: "Paper Type Name", w: 280 }],
   },
   "Press Information": {
@@ -2633,7 +2637,7 @@ const SETUP_FORMS = {
   "Writer Information": {
     kind: "record", title: "Writer Information", searchable: true, wide: true,
     fields: [
-      { key: "code", label: "Code", auto: true }, { key: "name", label: "Name" }, { key: "phone", label: "Phone" },
+      { key: "code", label: "Code", auto: true }, { key: "name", label: "Name" }, { key: "contributorType", label: "Contributor Type", type: "select", options: ["Writer", "Translator", "Editor", "Proofreader"] }, { key: "phone", label: "Phone" },
       { key: "email", label: "Email", type: "email" },
       { key: "address", label: "Address", type: "textarea" },
       { key: "opBalance", label: "Op. Balance", type: "number" },
@@ -2686,7 +2690,7 @@ const SETUP_FORMS = {
     ],
   },
   "Transport Entry": {
-    kind: "grid", title: "Transport Name Entry", initialRows: 8,
+    kind: "grid", title: "Transport Name Entry", initialRows: 1,
     fields: [{ key: "transportName", label: "Transport Name", w: 280 }, { key: "transportCode", label: "Trns Cd", w: 100, auto: true }],
   },
 };
@@ -2730,10 +2734,13 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
     if (!code) { setDistWarn(""); return; }
     if (/^c/i.test(code)) {
       const found = countries.find((c) => c.code.toLowerCase() === code.toLowerCase());
-      if (found) { setField("districtName", `Out Of Country — ${found.name}`); setDistWarn(""); return; }
+      if (found) { setForm((f) => ({ ...f, districtName: `Out Of Country — ${found.name}`, divisionCode: "", divisionName: "" })); setDistWarn(""); return; }
     }
     const found = districts.find((d) => d.code === code || d.code === code.padStart(2, "0"));
-    if (found) { setField("districtName", found.name); setDistWarn(""); }
+    if (found) {
+      setForm((f) => ({ ...f, districtName: found.name, divisionCode: found.division === "—" ? "" : (divisions.find((d) => d.name === found.division)?.code || ""), divisionName: found.division === "—" ? "" : found.division }));
+      setDistWarn("");
+    }
     else { setField("districtName", ""); setDistWarn("No district/country with that code (use C01, C02… for Out Of Country)"); }
   };
   // Items for the two search popups -- District's list also folds in every
@@ -2745,7 +2752,11 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
     ...countries.map((c) => ({ code: c.code, name: `Out Of Country — ${c.name}` })),
   ];
   const pickDivision = (it) => { setForm((f) => ({ ...f, divisionCode: it.code, divisionName: it.name })); setDivWarn(""); };
-  const pickDistrict = (it) => { setForm((f) => ({ ...f, districtCode: it.code, districtName: it.name })); setDistWarn(""); };
+  const pickDistrict = (it) => {
+    const found = districts.find((d) => d.code === it.code);
+    setForm((f) => ({ ...f, districtCode: it.code, districtName: it.name, divisionCode: found?.division === "—" ? "" : (divisions.find((d) => d.name === found?.division)?.code || ""), divisionName: found?.division === "—" ? "" : (found?.division || "") }));
+    setDistWarn("");
+  };
 
   const handleSave = () => {
     if (!form.partyName?.trim()) { setMsg("Party Name is required"); setTimeout(() => setMsg(""), 1600); return; }
@@ -2770,8 +2781,8 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
   };
   const goFirst = () => records.length && setIdx(0);
   const goLast = () => records.length && setIdx(records.length - 1);
-  const goNext = () => idx < records.length - 1 && setIdx(idx + 1);
-  const goPrev = () => idx > 0 && setIdx(idx - 1);
+  const goNext = () => records.length && setIdx(idx < 0 || idx >= records.length - 1 ? 0 : idx + 1);
+  const goPrev = () => records.length && setIdx(idx <= 0 ? records.length - 1 : idx - 1);
   const [showLov, setShowLov] = useState(false);
   // Pressing Enter in the Search box (with it empty or not) opens the
   // searchable list of every saved party -- same as putting the cursor in
@@ -2809,27 +2820,8 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 2 }}>
-        <ModernField label="Division Code  (type code, then Tab/Enter — or search)">
-          <div style={{ display: "flex", gap: 10, alignItems: "start" }}>
-            <input
-              style={codeFieldStyle} value={form.divisionCode || ""}
-              onChange={(e) => { setField("divisionCode", e.target.value); if (divWarn) setDivWarn(""); }}
-              onBlur={lookupDivision} onKeyDown={(e) => e.key === "Enter" && lookupDivision()}
-              placeholder="e.g. 01"
-            />
-            <div style={{ flex: 1 }}>
-              <input style={{ ...inputStyle, background: COLORS.paperDark, color: COLORS.charcoalSoft, fontWeight: 600 }} value={form.divisionName || ""} readOnly disabled placeholder="Auto from code" />
-              {divWarn && <div style={warnStyle}>{divWarn}</div>}
-            </div>
-            <button
-              type="button" onClick={() => setDivLovOpen(true)} title="Search Division"
-              style={{
-                flex: "0 0 auto", width: 30, height: 30, borderRadius: 6, border: `1.5px solid ${COLORS.paperLine}`,
-                background: COLORS.paperDark, color: COLORS.charcoal, cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            ><Search size={13} /></button>
-          </div>
+        <ModernField label="Division (auto-detected from District)">
+          <input style={autoFieldStyle} value={form.divisionName || (String(form.districtName || "").startsWith("Out Of Country") ? "Out Of Country" : "")} readOnly disabled title="Automatically filled from District" />
         </ModernField>
         <ModernField label="District Code  (or C01, C02… for Out Of Country — or search)">
           <div style={{ display: "flex", gap: 10, alignItems: "start" }}>
@@ -4489,13 +4481,17 @@ const REPORT_FORMS = {
        District code blank to see every district. */
     liveReport: "partyInformation",
     fields: [
-      { key: "partyType", label: "Party type", type: "select", options: PARTY_TYPE_OPTIONS },
+      { key: "partyType", label: "Party type", type: "select", options: PARTY_TYPES },
       {
         key: "district", label: "District", type: "pair",
         lookup: { sourceKey: "District Information", codeKey: "code", nameKey: "name" },
       },
     ],
     buttons: ["Preview", "Clear", "Exit"],
+  },
+  "Writer Information Register": {
+    title: "Writer Information Register", subtitle: "Writer Information", modalWidth: 720,
+    liveReport: "writerInformation", fields: [], buttons: ["Preview", "Clear", "Exit"],
   },
   "Book Sales Register": {
     title: "Stock",
@@ -4959,6 +4955,10 @@ function ReportSearchForm({ config, store, onClose }) {
       setResults(filtered);
       return;
     }
+    if (config.liveReport === "writerInformation" && b === "Preview") {
+      setResults(((store && store["Writer Information"]) || []).filter((r) => (r.name || "").trim() !== ""));
+      return;
+    }
     // Party Balance Report: every saved party, with their District and
     // Address alongside the running balance (Op. Balance -- there's no
     // separate ledger of memo-by-memo dues in this prototype yet, so
@@ -5085,7 +5085,15 @@ function ReportSearchForm({ config, store, onClose }) {
           )}
         </div>
       )}
-      {results !== null && config.liveReport !== "partyInformation" && config.liveReport !== "partyBalance" && (
+      {results !== null && config.liveReport === "writerInformation" && (
+        <div style={{ marginTop: 14, border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 10, maxHeight: 260, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead><tr style={{ background: COLORS.paperDark }}><th style={thStyle}>Code</th><th style={thStyle}>Name</th><th style={thStyle}>Contributor Type</th><th style={thStyle}>Phone</th><th style={thStyle}>Email</th></tr></thead>
+            <tbody>{results.map((r, i) => <tr key={i}><td style={tdStyle}>{r.code || "—"}</td><td style={tdStyle}>{r.name || "—"}</td><td style={tdStyle}>{r.contributorType || "—"}</td><td style={tdStyle}>{r.phone || "—"}</td><td style={tdStyle}>{r.email || "—"}</td></tr>)}</tbody>
+          </table>
+        </div>
+      )}
+      {results !== null && config.liveReport !== "partyInformation" && config.liveReport !== "partyBalance" && config.liveReport !== "writerInformation" && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, color: COLORS.charcoalSoft, marginBottom: 6, letterSpacing: "0.03em", textTransform: "uppercase" }}>
             {results.length} book{results.length === 1 ? "" : "s"} found {values.group ? "" : "— all groups"}
@@ -6374,7 +6382,7 @@ function Dashboard({ user, onLogout }) {
       {setupForm && setupForm !== "Party Information" && setupForm !== "Book Information" && SETUP_FORMS[setupForm] && (
         SETUP_FORMS[setupForm].kind === "grid"
           ? <GridSetupForm config={SETUP_FORMS[setupForm]} rows={getRecords(setupForm)} setRows={setRecordsFor(setupForm)} onClose={() => setSetupForm(null)} />
-          : <RecordSetupForm config={SETUP_FORMS[setupForm]} records={getRecords(setupForm)} setRecords={setRecordsFor(setupForm)} store={store} onClose={() => setSetupForm(null)} />
+          : <RecordSetupForm config={SETUP_FORMS[setupForm]} records={getRecords(setupForm)} setRecords={setRecordsFor(setupForm)} mirrorRecords={setupForm === "Specimen Party" || setupForm === "Other Person Telephones" ? setRecordsFor("Party Information") : undefined} store={store} onClose={() => setSetupForm(null)} />
       )}
       {orderForm && ORDER_FORMS[orderForm] && (
         <OrderEntryForm
