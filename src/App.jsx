@@ -1681,6 +1681,23 @@ function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, on
   const [msg, setMsg] = useState("");
   const [showLov, setShowLov] = useState(false);
 
+  useEffect(() => {
+    let changed = false;
+    const used = Object.fromEntries(autoKeys.map((key) => [key, []]));
+    const normalized = records.map((record) => {
+      const nextRecord = { ...record };
+      autoKeys.forEach((key) => {
+        if (used[key].some((value) => value === record[key])) {
+          nextRecord[key] = nextSerial(used[key].map((value) => ({ [key]: value })), key);
+          changed = true;
+        }
+        used[key].push(nextRecord[key]);
+      });
+      return nextRecord;
+    });
+    if (changed) setRecords(normalized);
+  }, [records, autoKeys.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => { setForm(idx >= 0 ? records[idx] : blankForm()); }, [idx]); // eslint-disable-line
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -1697,7 +1714,8 @@ function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, on
       if (mirrorRecords) mirrorRecords((rs) => [...rs, { ...form, partyCode: form.partyCode || form.code, partyName: form.partyName || form.name, partyType: form.partyType || "Special People", districtCode: form.district?.code || form.districtCode || "", districtName: form.district?.name || form.districtName || "" }]);
       /* Ready the form for the next entry right away, instead of parking on the
          just-saved record -- matches the old ledger system's "save & continue" flow. */
-      setForm(blankForm()); setIdx(-1);
+      const nextForm = Object.fromEntries(autoKeys.map((key) => [key, nextSerial(next, key)]));
+      setForm(nextForm); setIdx(-1);
       setMsg("Saved — ready for next entry");
     }
     setTimeout(() => setMsg(""), 1600);
@@ -1752,7 +1770,6 @@ function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, on
           </div>
         ))}
       </div>
-      <RecordsList records={records} columns={listColumns} activeIdx={idx} onEdit={editFromList} onDelete={deleteFromList} />
       {msg && <div style={{ color: COLORS.inkDark, fontSize: 12, marginBottom: 8, fontWeight: 600 }}>{msg}</div>}
       <div style={{ fontSize: 11, color: COLORS.charcoalSoft, marginBottom: 10 }}>
         Record: {idx >= 0 ? idx + 1 : 0} / {records.length}
