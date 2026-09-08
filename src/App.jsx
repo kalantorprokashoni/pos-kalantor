@@ -4528,10 +4528,10 @@ const REPORT_FORMS = {
     buttons: ["Preview", "Clear", "Exit"],
   },
   "Writer Information Register": {
-    title: "Writer Information Register", subtitle: "Writer Information", modalWidth: 980,
+    title: "Writer Information Register", subtitle: "Writer Information", modalWidth: 980, fullPage: true,
     liveReport: "writerInformation",
     fields: [
-      { key: "contributorType", label: "Contributor Type", type: "select", options: ["Writer", "Translator", "Editor", "Proofreader"] },
+      { key: "contributorType", label: "Contributor Type", type: "select", default: "All", options: ["All", "Writer", "Translator", "Editor", "Proofreader"] },
       {
         key: "district", label: "District", type: "pair",
         lookup: { sourceKey: "District Information", codeKey: "code", nameKey: "name" },
@@ -5013,7 +5013,7 @@ function ReportSearchForm({ config, store, onClose }) {
           // visible until they are edited and assigned a District.
           return !savedCode || String(savedCode).replace(/^0+/, "") === String(districtCode).replace(/^0+/, "");
         })
-        .filter((r) => !values.contributorType || r.contributorType === values.contributorType)
+        .filter((r) => !values.contributorType || values.contributorType === "All" || r.contributorType === values.contributorType)
         .map((r, i) => ({ ...r, code: String(i + 1).padStart(2, "0") })));
       return;
     }
@@ -5146,10 +5146,10 @@ function ReportSearchForm({ config, store, onClose }) {
       {results !== null && config.liveReport === "writerInformation" && (
         results.length === 0 ? (
           <div style={{ marginTop: 14, padding: "14px 10px", border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 10, color: COLORS.charcoalSoft, textAlign: "center", fontSize: 12.5 }}>
-            তথ্য পাওয়া যায়নি
+           no writers saved for this selection yet.
           </div>
         ) : (
-          <div style={{ marginTop: 14, border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 10, maxHeight: 260, overflow: "auto" }}>
+          <div style={{ marginTop: 14, border: `1.5px solid ${COLORS.paperLine}`, borderRadius: 10, maxHeight: "calc(100vh - 300px)", overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead><tr style={{ background: COLORS.paperDark }}><th style={thStyle}>Code</th><th style={thStyle}>Name</th><th style={thStyle}>Division</th><th style={thStyle}>District Code</th><th style={thStyle}>District Name</th><th style={thStyle}>Contributor Type</th><th style={thStyle}>Phone</th><th style={thStyle}>Email</th></tr></thead>
               <tbody>{results.map((r, i) => {
