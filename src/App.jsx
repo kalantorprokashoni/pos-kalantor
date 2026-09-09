@@ -1992,7 +1992,10 @@ function GridSetupForm({ config, rows, setRows, onClose }) {
   if (config.fullPage) {
     return <FullScreenShell title={config.title} onClose={onClose}>{body}</FullScreenShell>;
   }
-  return <ModalShell title={config.title} onClose={onClose} wide width={gridAutoWidth({ columns: config.fields })}>{body}</ModalShell>;
+  const popupWidth = config.title === "Book Entry Form"
+    ? Math.min(gridAutoWidth({ columns: config.fields }) || 980, 980)
+    : gridAutoWidth({ columns: config.fields });
+  return <ModalShell title={config.title} onClose={onClose} wide width={popupWidth}>{body}</ModalShell>;
 }
 
 /* "Group List" popup modal for Book Entry Form's Search box -- opened by
@@ -2032,15 +2035,41 @@ function GroupListModal({ groups, initialQuery, onPick, onClose }) {
         className="fade-up font-body"
         style={{
           width: 420, maxWidth: "94%", maxHeight: "70vh", display: "flex", flexDirection: "column",
-          borderRadius: 14, background: COLORS.cream, boxShadow: "0 30px 70px rgba(0,0,0,0.45)", 
+          borderRadius: 14, background: COLORS.cream, boxShadow: "0 30px 70px rgba(0,0,0,0.45)",
+          overflow: "hidden", border: `1px solid ${COLORS.paperLine}`,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{
           flex: "0 0 auto", background: `linear-gradient(135deg, ${COLORS.ink}, ${COLORS.inkDark})`, color: "#fff",
           padding: "11px 16px", fontWeight: 700, fontSize: 13.5,
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
         }}>
-          Book Group List
+          <span>Book Group List</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.35)", color: "#fff",
+                cursor: "pointer", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close dialog"
+              style={{
+                background: "rgba(255,255,255,0.14)", border: "none", color: "#fff", cursor: "pointer",
+                width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 0, flex: "0 0 auto",
+              }}
+            >
+              <X size={12} strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
         <div style={{ padding: 10, flex: "0 0 auto" }}>
           <input
@@ -2453,10 +2482,14 @@ function BookEntryForm({ config, groups, setGroups, books, setBooks, onClose }) 
     </div>
   );
 
+  const popupWidth = config.title === "Book Entry Form"
+    ? Math.min(gridAutoWidth({ columns: config.fields }) || 980, 980)
+    : gridAutoWidth({ columns: config.fields });
+
   return (
-    <FullScreenShell title={config.title} onClose={onClose}>
+    <ModalShell title={config.title} onClose={onClose} wide width={popupWidth}>
       {body}
-    </FullScreenShell>
+    </ModalShell>
   );
 }
 
@@ -2685,7 +2718,7 @@ const SETUP_FORMS = {
     ],
   },
   "Book Information": {
-    kind: "grid", title: "Book Entry Form", groupLabel: "Group", fullPage: true, initialRows: 12,
+    kind: "grid", title: "Book Entry Form", groupLabel: "Group", initialRows: 12,
     fields: [
       { key: "bookCode", label: "Book Code", w: 65, auto: true },
       // w:200 on Book Name and Writer Name to match the Book Name column's
