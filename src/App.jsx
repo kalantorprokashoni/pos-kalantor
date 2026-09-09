@@ -49,6 +49,9 @@ const FONTS = (
        horizontal overflow from fixed widths / long labels. */
     html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; overflow-x: hidden; }
     body { overflow-y: auto; }
+    .modal-shell-card { width: min(100%, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
+    .responsive-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .modal-action-row { display: flex; flex-wrap: wrap; gap: 7px; }
     .mobile-menu-toggle { display: none; }
     @media (max-width: 900px) {
       .topbar-header { flex-wrap: wrap; gap: 8px; }
@@ -84,6 +87,15 @@ const FONTS = (
       .login-screen { padding: 16px !important; }
       .login-panel { max-width: 100% !important; }
     }
+    @media (max-width: 720px) {
+      .modal-shell-card { width: min(100%, calc(100vw - 12px)) !important; max-width: calc(100vw - 12px) !important; border-radius: 12px !important; }
+      .modal-shell-content { padding: 8px !important; }
+      .responsive-two-col { grid-template-columns: 1fr !important; }
+      .order-header-stack { flex-direction: column !important; }
+      .order-search-panel { flex-basis: 100% !important; width: 100% !important; }
+      .modal-action-row { width: 100%; }
+      .modal-action-row > button { flex: 1 1 calc(50% - 7px); min-width: 110px; }
+    }
     @media (max-width: 560px) {
       .topbar-header { padding: 8px 10px !important; }
       .topbar-right { gap: 8px; }
@@ -95,6 +107,7 @@ const FONTS = (
       .receipt-card .card-label { letter-spacing: 0.1em !important; font-size: 10px !important; }
       .receipt-card .card-value { font-size: 20px !important; }
       .sync-status { justify-content: center !important; text-align: center; }
+      .modal-action-row > button { flex-basis: 100%; }
     }
     @media (min-width: 901px) {
       .topnav-menu-wrap { display: flex !important; }
@@ -1206,7 +1219,7 @@ function ModalShell({ title, onClose, wide, width, maxHeight, children, noScroll
           for grid forms (noScroll) the body doesn't scroll either -- only
           the book/line table's own small bordered box further down does,
           same as a frozen-header spreadsheet. */}
-      <div className="fade-up font-body" style={{
+      <div className="fade-up font-body modal-shell-card" style={{
         width: width || (wide ? 780 : 440), maxWidth: "100%",
         maxHeight: maxHeight || "calc(100vh - 112px)", display: "flex", flexDirection: "column",
         borderRadius: 16, background: COLORS.cream, boxShadow: "0 30px 70px rgba(0,0,0,0.45)",
@@ -1223,7 +1236,7 @@ function ModalShell({ title, onClose, wide, width, maxHeight, children, noScroll
             width: 26, height: 26, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
           }}><X size={14} /></button>
         </div>
-        <div className="themed-scroll" style={{
+        <div className="themed-scroll modal-shell-content" style={{
           flex: "1 1 auto", overflowY: noScroll ? "hidden" : "auto", overflow: noScroll ? "hidden" : undefined, padding: 10,
         }}>{children}</div>
       </div>
@@ -1270,7 +1283,8 @@ function LovPopup({ title, items, initialQuery, onPick, onClose }) {
     <div
       style={{
         position: "fixed", inset: 0, background: "rgba(5,27,35,0.6)", zIndex: 400,
-        display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(2px)",
+        display: "flex", alignItems: "flex-start", justifyContent: "center", backdropFilter: "blur(2px)",
+        paddingTop: 30,
       }}
       onClick={onClose}
     >
@@ -1278,15 +1292,31 @@ function LovPopup({ title, items, initialQuery, onPick, onClose }) {
         className="fade-up font-body"
         style={{
           width: 420, maxWidth: "94%", maxHeight: "70vh", display: "flex", flexDirection: "column",
-          borderRadius: 14, background: COLORS.cream, boxShadow: "0 30px 70px rgba(0,0,0,0.45)", overflow: "hidden",
+          borderRadius: 14, background: COLORS.cream, boxShadow: "0 30px 70px rgba(0,0,0,0.45)",
+          overflow: "hidden", border: `1px solid ${COLORS.paperLine}`,
+          marginTop: 0,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{
-          flex: "0 0 auto", background: `linear-gradient(135deg, ${COLORS.ink}, ${COLORS.inkDark})`, color: "#fff",
-          padding: "11px 16px", fontWeight: 700, fontSize: 13.5,
+          flex: "0 0 auto", background: "#0b8ca3", color: "#fff",
+          padding: "10px 12px 10px 16px", fontWeight: 700, fontSize: 13.5,
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+          borderBottom: "1px solid rgba(255,255,255,0.13)",
         }}>
-          {title || "Search"}
+          <span style={{ display: "inline-block", lineHeight: 1.2 }}>{title || "Search"}</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            style={{
+              background: "rgba(255,255,255,0.14)", border: "none", color: "#fff", cursor: "pointer",
+              width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+              padding: 0, flex: "0 0 auto",
+            }}
+          >
+            <X size={12} strokeWidth={2.5} />
+          </button>
         </div>
         <div style={{ padding: 10, flex: "0 0 auto" }}>
           <input
@@ -1822,7 +1852,7 @@ function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, on
       {showLov && <LovPopup title={`Find ${config.title}`} initialQuery={search}
         items={records.map((r, i) => ({ code: r.code || r.partyCode || "", name: r.name || r.partyName || "", _idx: i }))}
         onPick={(it) => { setIdx(it._idx); setShowLov(false); }} onClose={() => setShowLov(false)} />}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+      <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
         {config.fields.map((f) => (
           <div key={f.key} style={f.type === "textarea" ? { gridColumn: "1 / -1" } : undefined}>
             <ModernField label={f.label}>
@@ -1838,7 +1868,7 @@ function RecordSetupForm({ config, records, setRecords, store, mirrorRecords, on
       <div style={{ fontSize: 11, color: COLORS.charcoalSoft, marginBottom: 10 }}>
         Record: {idx >= 0 ? idx + 1 : 0} / {records.length}
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+      <div className="modal-action-row" style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
         <FooterBtn onClick={handleSave} primary>Save</FooterBtn>
         <FooterBtn onClick={handleDelete} danger>Delete</FooterBtn>
         <FooterBtn onClick={goFirst}>First</FooterBtn>
@@ -2002,7 +2032,7 @@ function GroupListModal({ groups, initialQuery, onPick, onClose }) {
         className="fade-up font-body"
         style={{
           width: 420, maxWidth: "94%", maxHeight: "70vh", display: "flex", flexDirection: "column",
-          borderRadius: 14, background: COLORS.cream, boxShadow: "0 30px 70px rgba(0,0,0,0.45)", overflow: "hidden",
+          borderRadius: 14, background: COLORS.cream, boxShadow: "0 30px 70px rgba(0,0,0,0.45)", 
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -2819,19 +2849,40 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
     if (found) { setField("divisionName", found.name); setDivWarn(""); }
     else { setField("divisionName", ""); setDivWarn("No division with that code"); }
   };
+  // Returns true/false so Enter (below) knows whether the lookup actually
+  // resolved a district -- on a hit, focus should move on to the next field
+  // like every other field in this form; on a miss, the cursor needs to stay
+  // put (and the Find District popup opens) so the warning is visible.
   const lookupDistrict = () => {
     const code = (form.districtCode || "").trim();
-    if (!code) { setDistWarn(""); return; }
+    if (!code) { setDistWarn(""); return false; }
     if (/^c/i.test(code)) {
       const found = countries.find((c) => c.code.toLowerCase() === code.toLowerCase());
-      if (found) { setForm((f) => ({ ...f, districtName: `Out Of Country — ${found.name}`, divisionCode: "", divisionName: "" })); setDistWarn(""); return; }
+      if (found) { setForm((f) => ({ ...f, districtName: `Out Of Country — ${found.name}`, divisionCode: "", divisionName: "" })); setDistWarn(""); return true; }
     }
     const found = districts.find((d) => d.code === code || d.code === code.padStart(2, "0"));
     if (found) {
       setForm((f) => ({ ...f, districtName: found.name, divisionCode: found.division === "—" ? "" : (divisions.find((d) => d.name === found.division)?.code || ""), divisionName: found.division === "—" ? "" : found.division }));
       setDistWarn("");
+      return true;
     }
-    else { setField("districtName", ""); setDistWarn("No district/country with that code (use C01, C02… for Out Of Country)"); }
+    setField("districtName", "");
+    setDistWarn("No district/country with that code (use C01, C02… for Out Of Country)");
+    return false;
+  };
+
+  // Enter here now matches every other lookup field in the app: a code that
+  // resolves lets the keydown bubble up to handleEnterAsTab so focus advances
+  // to the next field, same as Tab. A code that doesn't resolve (or an empty
+  // field) instead pops the Find District search, same as the F9/search-icon
+  // flow, instead of silently doing nothing.
+  const triggerDistrictLookup = (e) => {
+    const ok = lookupDistrict();
+    if (!ok) {
+      if (e && typeof e.preventDefault === "function") e.preventDefault();
+      if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+      setDistLovOpen(true);
+    }
   };
   // Items for the two search popups -- District's list also folds in every
   // saved "Out Of Country" entry (C01, C02, ...) alongside the 64 districts,
@@ -2909,7 +2960,7 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
         />
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 2 }}>
+      <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 2 }}>
         <ModernField label="Division (auto-detected from District)">
           <input style={autoFieldStyle} value={form.divisionName || (String(form.districtName || "").startsWith("Out Of Country") ? "Out Of Country" : "")} readOnly disabled title="Automatically filled from District" />
         </ModernField>
@@ -2918,7 +2969,12 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
             <input
               style={codeFieldStyle} value={form.districtCode || ""}
               onChange={(e) => { setField("districtCode", e.target.value); if (distWarn) setDistWarn(""); }}
-              onBlur={lookupDistrict} onKeyDown={(e) => e.key === "Enter" && lookupDistrict()}
+              onBlur={lookupDistrict}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  triggerDistrictLookup(e);
+                }
+              }}
               placeholder="e.g. 01"
             />
             <div style={{ flex: 1 }}>
@@ -2994,7 +3050,7 @@ function PartyInformationForm({ records, setRecords, divisions, districts, count
       <div style={{ fontSize: 11, color: COLORS.charcoalSoft, margin: "8px 0" }}>
         Record: {idx >= 0 ? idx + 1 : 0} / {records.length}
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+      <div className="modal-action-row" style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
         <FooterBtn onClick={handleSave} primary>Save</FooterBtn>
         <FooterBtn onClick={handleDelete} danger>Delete</FooterBtn>
         <FooterBtn onClick={handleClear}>Clear</FooterBtn>
@@ -5809,7 +5865,7 @@ function OrderEntryForm({ config, records, setRecords, store, preparedBy, onClos
           version of this box overlapped and hid the grid's own column-header
           row right below it, so this stays in normal flow -- only the title
           bar and the Save/Exit button row (further down) stay pinned. */}
-      <div style={{
+      <div className="order-header-stack" style={{
         display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 2,
       }}>
         <div style={{
@@ -5870,7 +5926,7 @@ function OrderEntryForm({ config, records, setRecords, store, preparedBy, onClos
           ))}
         </div>
         {config.searchable && (
-          <div style={{ flex: "0 0 190px", position: "relative" }}>
+          <div className="order-search-panel" style={{ flex: "0 0 190px", position: "relative" }}>
             <ModernField label={config.searchLabel || "Search"} compact={config.compactHeader}>
               <div style={{ display: "flex", gap: 6 }}>
                 <input
