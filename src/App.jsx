@@ -45,10 +45,10 @@ const FONTS = (
     input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
     input[type="number"]::-webkit-outer-spin-button,
     input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; display: none; }
-    /* Lock the whole app to the viewport -- no page-level scrollbar in
-       either direction. Individual panels/modals still scroll internally
-       via their own overflow:auto (see .themed-scroll etc above). */
-    html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; }
+    /* Keep the app usable on phones/tablets: allow vertical scrolling and prevent
+       horizontal overflow from fixed widths / long labels. */
+    html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; overflow-x: hidden; }
+    body { overflow-y: auto; }
     .mobile-menu-toggle { display: none; }
     @media (max-width: 900px) {
       .topbar-header { flex-wrap: wrap; gap: 8px; }
@@ -73,6 +73,28 @@ const FONTS = (
         border-top: 1px solid rgba(8, 51, 68, 0.12) !important;
         margin-bottom: 6px;
       }
+      .dashboard-shell { height: auto !important; min-height: 100vh; }
+      .dashboard-hero { padding: 28px 12px 52px !important; }
+      .dashboard-inner { max-width: 100% !important; }
+      .dashboard-cards { gap: 14px !important; }
+      .receipt-card { width: 100% !important; min-width: 0 !important; }
+      .dashboard-welcome { display: none !important; }
+      .dashboard-brand { width: 180px !important; }
+      .hero-tagline { letter-spacing: 0.18em !important; font-size: 10px !important; }
+      .login-screen { padding: 16px !important; }
+      .login-panel { max-width: 100% !important; }
+    }
+    @media (max-width: 560px) {
+      .topbar-header { padding: 8px 10px !important; }
+      .topbar-right { gap: 8px; }
+      .topbar-right > span { font-size: 11px !important; }
+      .topbar-right > button:last-child { padding: 6px 10px !important; font-size: 11px !important; }
+      .dashboard-hero { padding: 20px 10px 44px !important; }
+      .dashboard-brand { width: 150px !important; }
+      .hero-tagline { line-height: 1.5 !important; }
+      .receipt-card .card-label { letter-spacing: 0.1em !important; font-size: 10px !important; }
+      .receipt-card .card-value { font-size: 20px !important; }
+      .sync-status { justify-content: center !important; text-align: center; }
     }
     @media (min-width: 901px) {
       .topnav-menu-wrap { display: flex !important; }
@@ -336,10 +358,11 @@ async function pushBackupSnapshot(state) {
 /* =========================================================
    Perforated "receipt slip" card -- the signature element
    ========================================================= */
-function ReceiptCard({ children, style }) {
+function ReceiptCard({ children, style, className }) {
   const zig = "polygon(0% 6px,3% 0%,6% 6px,9% 0%,12% 6px,15% 0%,18% 6px,21% 0%,24% 6px,27% 0%,30% 6px,33% 0%,36% 6px,39% 0%,42% 6px,45% 0%,48% 6px,51% 0%,54% 6px,57% 0%,60% 6px,63% 0%,66% 6px,69% 0%,72% 6px,75% 0%,78% 6px,81% 0%,84% 6px,87% 0%,90% 6px,93% 0%,96% 6px,99% 0%,100% 6px,100% calc(100% - 6px),99% 100%,96% calc(100% - 6px),93% 100%,90% calc(100% - 6px),87% 100%,84% calc(100% - 6px),81% 100%,78% calc(100% - 6px),75% 100%,72% calc(100% - 6px),69% 100%,66% calc(100% - 6px),63% 100%,60% calc(100% - 6px),57% 100%,54% calc(100% - 6px),51% 100%,48% calc(100% - 6px),45% 100%,42% calc(100% - 6px),39% 100%,36% calc(100% - 6px),33% 100%,30% calc(100% - 6px),27% 100%,24% calc(100% - 6px),21% 100%,18% calc(100% - 6px),15% 100%,12% calc(100% - 6px),9% 100%,6% calc(100% - 6px),3% 100%,0% calc(100% - 6px))";
   return (
     <div
+      className={className}
       style={{
         background: COLORS.cream,
         clipPath: zig,
@@ -465,7 +488,7 @@ function LoginScreen({ onConnect }) {
 
   return (
     <div
-      className="font-body"
+      className="font-body login-screen"
       style={{
         minHeight: "100vh",
         width: "100%",
@@ -487,7 +510,7 @@ function LoginScreen({ onConnect }) {
         background: "radial-gradient(circle, rgba(34,180,212,0.28), transparent 70%)"
       }} />
 
-      <div className="fade-up" style={{ width: "100%", maxWidth: 420, position: "relative", zIndex: 2 }}>
+      <div className="fade-up login-panel" style={{ width: "100%", maxWidth: 420, position: "relative", zIndex: 2 }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 26 }}>
           <div style={{
             width: 74, height: 74,
@@ -6299,7 +6322,7 @@ function Dashboard({ user, onLogout }) {
   }, []);
 
   return (
-    <div className="font-body" style={{
+    <div className="font-body dashboard-shell" style={{
       height: "100vh",
       display: "flex",
       flexDirection: "column",
@@ -6327,7 +6350,7 @@ function Dashboard({ user, onLogout }) {
             >
               ☰
             </button>
-            <span style={{ color: "#cdeef5", fontSize: 12.5 }}>Welcome, <b>{user}</b></span>
+            <span className="dashboard-welcome" style={{ color: "#cdeef5", fontSize: 12.5 }}>Welcome, <b>{user}</b></span>
             <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.12)", border: "none", color: "#eaf7fa", padding: "6px 12px", fontSize: 12.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
               <LogOut size={13} /> Log Out
             </button>
@@ -6365,7 +6388,7 @@ function Dashboard({ user, onLogout }) {
           height: 6, background: `repeating-linear-gradient(90deg, ${COLORS.gold} 0 8px, transparent 8px 16px)`,
           opacity: 0.5,
         }} />
-        <div className="font-body" style={{
+        <div className="font-body sync-status" style={{
           display: "flex", justifyContent: "flex-end", padding: "4px 16px",
           fontSize: 11, color: syncStatus === "offline" ? "#ff9d8a" : "#7fd8e8",
         }}>
@@ -6378,30 +6401,30 @@ function Dashboard({ user, onLogout }) {
 
       <div className="themed-scroll" style={{ flex: "1 1 auto", overflowY: "auto", overflowX: "hidden" }}>
       {/* Hero / home content */}
-      <div style={{ padding: "48px 20px 70px", position: "relative" }}>
-        <div style={{ maxWidth: 920, margin: "0 auto" }}>
+      <div className="dashboard-hero" style={{ padding: "48px 20px 70px", position: "relative" }}>
+        <div className="dashboard-inner" style={{ maxWidth: 920, margin: "0 auto" }}>
           <div className="fade-up" style={{ textAlign: "center", marginBottom: 34, display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <div className="font-mono" style={{ color: COLORS.gold, fontSize: 12, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 14 }}>
+            <div className="font-mono hero-tagline" style={{ color: COLORS.gold, fontSize: 12, letterSpacing: "0.3em", textTransform: "uppercase", marginBottom: 14 }}>
               Publisher &amp; Ledger Management
             </div>
             <img src={LOGO_ICON} alt="Ekalantor logo" style={{ width: 56, height: 56, objectFit: "contain", marginBottom: 10 }} />
-            <img src={NAMLIPI} alt="Ekalantor Prokashoni" style={{ width: 240 }} />
+            <img className="dashboard-brand" src={NAMLIPI} alt="Ekalantor Prokashoni" style={{ width: 240 }} />
           </div>
 
-          <div className="fade-up" style={{ display: "flex", gap: 24, flexWrap: "wrap", justifyContent: "center", marginBottom: 10 }}>
-            <ReceiptCard style={{ width: 300 }}>
+          <div className="fade-up dashboard-cards" style={{ display: "flex", gap: 24, flexWrap: "wrap", justifyContent: "center", marginBottom: 10 }}>
+            <ReceiptCard className="receipt-card" style={{ width: 300 }}>
               <div style={{ position: "absolute", top: 12, left: 14, width: 8, height: 8, borderRadius: "50%", background: COLORS.paper, boxShadow: "inset 0 1px 2px rgba(0,0,0,0.25)" }} />
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: COLORS.charcoalSoft, letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>Today's Date &amp; Time</div>
+                <div className="card-label" style={{ fontSize: 11, color: COLORS.charcoalSoft, letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>Today's Date &amp; Time</div>
                 <div className="font-display" style={{ color: COLORS.inkDark, fontSize: 16.5, marginBottom: 8 }}>{formatDhakaDate(now)}</div>
-                <div className="font-mono" style={{ color: COLORS.inkDeep, fontSize: 27, fontWeight: 700, letterSpacing: "0.03em" }}>{formatDhakaTime(now)}</div>
+                <div className="font-mono card-value" style={{ color: COLORS.inkDeep, fontSize: 27, fontWeight: 700, letterSpacing: "0.03em" }}>{formatDhakaTime(now)}</div>
                 <div style={{ fontSize: 10.5, color: COLORS.charcoalSoft, marginTop: 6 }}>Asia / Dhaka (GMT+6)</div>
               </div>
             </ReceiptCard>
 
-            <ReceiptCard style={{ width: 300 }}>
+            <ReceiptCard className="receipt-card" style={{ width: 300 }}>
               <div style={{ position: "absolute", top: 12, left: 14, width: 8, height: 8, borderRadius: "50%", background: COLORS.paper, boxShadow: "inset 0 1px 2px rgba(0,0,0,0.25)" }} />
-              <div style={{ fontSize: 11, color: COLORS.charcoalSoft, letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 10, textAlign: "center" }}>Dhaka Prayer Times</div>
+              <div className="card-label" style={{ fontSize: 11, color: COLORS.charcoalSoft, letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 10, textAlign: "center" }}>Dhaka Prayer Times</div>
 
               {prayerTimes.status === "loading" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", rowGap: 10, columnGap: 6 }}>
