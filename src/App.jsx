@@ -49,6 +49,35 @@ const FONTS = (
        either direction. Individual panels/modals still scroll internally
        via their own overflow:auto (see .themed-scroll etc above). */
     html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; }
+    .mobile-menu-toggle { display: none; }
+    @media (max-width: 900px) {
+      .topbar-header { flex-wrap: wrap; gap: 8px; }
+      .topbar-right { width: 100%; justify-content: space-between; }
+      .mobile-menu-toggle { display: inline-flex !important; }
+      .topnav-menu-wrap { display: none !important; }
+      .topnav-menu-wrap.mobile-open { display: flex !important; flex-direction: column; width: 100%; }
+      .topnav-menu-wrap.mobile-open > * { width: 100%; }
+      .nav-trigger {
+        width: 100%;
+        justify-content: space-between;
+        padding: 12px 14px !important;
+      }
+      .nav-dropdown {
+        position: static !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        width: 100% !important;
+        box-shadow: none !important;
+        border-left: none !important;
+        border-right: none !important;
+        border-top: 1px solid rgba(8, 51, 68, 0.12) !important;
+        margin-bottom: 6px;
+      }
+    }
+    @media (min-width: 901px) {
+      .topnav-menu-wrap { display: flex !important; }
+      .mobile-menu-toggle { display: none !important; }
+    }
   `}</style>
 );
 
@@ -347,7 +376,7 @@ function NavMenu({ menu, isOpen, onToggle, onPick, onHoverOpen, onHoverClose }) 
     >
       <button
         onClick={() => onToggle(menu.label)}
-        className="font-body"
+        className="font-body nav-trigger"
         style={{
           background: isOpen ? "rgba(255,255,255,0.14)" : "transparent",
           border: "none",
@@ -369,7 +398,7 @@ function NavMenu({ menu, isOpen, onToggle, onPick, onHoverOpen, onHoverClose }) 
       </button>
       {isOpen && (
         <div
-          className="fade-up"
+          className="fade-up nav-dropdown"
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
           style={{
@@ -6141,6 +6170,7 @@ function OrderEntryForm({ config, records, setRecords, store, preparedBy, onClos
    ========================================================= */
 function Dashboard({ user, onLogout }) {
   const [openMenu, setOpenMenu] = useState(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -6258,7 +6288,12 @@ function Dashboard({ user, onLogout }) {
   const storeWithRefs = { ...store, "District Information": districts };
 
   useEffect(() => {
-    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpenMenu(null); };
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpenMenu(null);
+        setMobileMenuOpen(false);
+      }
+    };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
@@ -6273,29 +6308,46 @@ function Dashboard({ user, onLogout }) {
     }}>
       {/* top brand + nav */}
       <div ref={wrapRef} style={{ flexShrink: 0, background: `linear-gradient(180deg, ${COLORS.ink}, ${COLORS.inkDark})`, position: "sticky", top: 0, zIndex: 40, boxShadow: "0 6px 18px rgba(0,0,0,0.18)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 18px" }}>
+        <div className="topbar-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 18px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <img src={LOGO_ICON} alt="" style={{ width: 30, height: 30 }} />
             <span className="font-display" style={{ color: "#eaf7fa", fontSize: 17, fontWeight: 700 }}>Ekalantor</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div className="topbar-right" style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <button
+              type="button"
+              className="mobile-menu-toggle font-body"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              style={{
+                background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.24)",
+                color: "#eaf7fa", padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                alignItems: "center", justifyContent: "center", minWidth: 42, height: 36,
+              }}
+              aria-label="Toggle menu"
+            >
+              ☰
+            </button>
             <span style={{ color: "#cdeef5", fontSize: 12.5 }}>Welcome, <b>{user}</b></span>
             <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.12)", border: "none", color: "#eaf7fa", padding: "6px 12px", fontSize: 12.5, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
               <LogOut size={13} /> Log Out
             </button>
           </div>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", borderTop: "1px solid rgba(255,255,255,0.14)", padding: "0 8px", position: "relative" }}>
+        <div className={`topnav-menu-wrap ${mobileMenuOpen ? "mobile-open" : ""}`} style={{ display: "flex", flexWrap: "wrap", borderTop: "1px solid rgba(255,255,255,0.14)", padding: "0 8px", position: "relative" }}>
           {MENUS.map((m) => (
             <NavMenu
               key={m.label}
               menu={m}
               isOpen={openMenu === m.label}
-              onToggle={(l) => setOpenMenu(openMenu === l ? null : l)}
+              onToggle={(l) => {
+                setOpenMenu(openMenu === l ? null : l);
+                setMobileMenuOpen(true);
+              }}
               onHoverOpen={(l) => setOpenMenu(l)}
               onHoverClose={(l) => setOpenMenu((cur) => (cur === l ? null : cur))}
               onPick={(item) => {
                 setOpenMenu(null);
+                setMobileMenuOpen(false);
                 if (item === "Division") setSetupForm("Division");
                 else if (item === "District Information") setSetupForm("District Information");
                 else if (item === "Settings") setShowSettings(true);
@@ -6306,8 +6358,8 @@ function Dashboard({ user, onLogout }) {
               }}
             />
           ))}
-          <button onClick={() => setShowCreateUser(true)} className="font-body" style={{ background: "transparent", border: "none", color: "#eaf7fa", padding: "13px 14px", fontSize: 14.5, fontWeight: 600, cursor: "pointer" }}>Create User</button>
-          <button onClick={() => setShowBackup(true)} className="font-body" style={{ background: "transparent", border: "none", color: "#eaf7fa", padding: "13px 14px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>BACKUP</button>
+          <button onClick={() => { setShowCreateUser(true); setMobileMenuOpen(false); }} className="font-body" style={{ background: "transparent", border: "none", color: "#eaf7fa", padding: "13px 14px", fontSize: 14.5, fontWeight: 600, cursor: "pointer" }}>Create User</button>
+          <button onClick={() => { setShowBackup(true); setMobileMenuOpen(false); }} className="font-body" style={{ background: "transparent", border: "none", color: "#eaf7fa", padding: "13px 14px", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>BACKUP</button>
         </div>
         <div style={{
           height: 6, background: `repeating-linear-gradient(90deg, ${COLORS.gold} 0 8px, transparent 8px 16px)`,
